@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../services/sender_permission_service.dart';
 import '../../widgets/common/app_card.dart';
 import 'sender_settings_screen.dart';
 import 'sender_status_screen.dart';
@@ -14,10 +15,52 @@ class SenderPermissionsScreen extends StatefulWidget {
       _SenderPermissionsScreenState();
 }
 
-class _SenderPermissionsScreenState extends State<SenderPermissionsScreen> {
-  bool smsPermission = true;
+class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
+    with WidgetsBindingObserver {
+  final SenderPermissionService permissionService =
+  const SenderPermissionService();
+
+  bool smsPermission = false;
   bool notificationPermission = false;
-  bool backgroundPermission = true;
+  bool backgroundPermission = false;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadPermissions();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadPermissions();
+    }
+  }
+
+  Future<void> _loadPermissions() async {
+    final sms = await permissionService.isSmsGranted();
+    final notification =
+    await permissionService.isNotificationListenerEnabled();
+    final background =
+    await permissionService.isBatteryOptimizationDisabled();
+
+    if (!mounted) return;
+
+    setState(() {
+      smsPermission = sms;
+      notificationPermission = notification;
+      backgroundPermission = background;
+      isLoading = false;
+    });
+  }
 
   void _onNavTap(BuildContext context, int index) {
     if (index == 2) return;
@@ -29,24 +72,27 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen> {
           if (index == 0) {
             return const SenderStatusScreen();
           }
+
           return const SenderSettingsScreen();
         },
       ),
     );
   }
 
-  void _requestPermission(String type) {
-    setState(() {
-      if (type == 'sms') smsPermission = true;
-      if (type == 'notification') notificationPermission = true;
-      if (type == 'background') backgroundPermission = true;
-    });
+  Future<void> _requestSmsPermission() async {
+    final granted = await permissionService.requestSms();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Разрешение "$type" выдано (заглушка)'),
-      ),
-    );
+    if (!mounted) return;
+
+    setState(() => smsPermission = granted);
+  }
+
+  Future<void> _openNotificationSettings() async {
+    await permissionService.openNotificationListenerSettings();
+  }
+
+  Future<void> _openBatterySettings() async {
+    await permissionService.openBatteryOptimizationSettings();
   }
 
   @override
@@ -58,28 +104,37 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen> {
           children: [
             const _Header(),
             Expanded(
-              child: ListView(
+              child: isLoading
+                  ? const Center(
+                child: CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
+              )
+                  : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
                   _PermissionCard(
                     title: 'SMS',
                     subtitle: 'Доступ к входящим SMS',
                     granted: smsPermission,
-                    onTap: () => _requestPermission('sms'),
+                    buttonText: 'Выдать',
+                    onTap: _requestSmsPermission,
                   ),
                   const SizedBox(height: 14),
                   _PermissionCard(
                     title: 'Уведомления',
-                    subtitle: 'Доступ к PUSH-уведомлениям',
+                    subtitle: 'Доступ к чтению PUSH-уведомлений',
                     granted: notificationPermission,
-                    onTap: () => _requestPermission('notification'),
+                    buttonText: 'Открыть',
+                    onTap: _openNotificationSettings,
                   ),
                   const SizedBox(height: 14),
                   _PermissionCard(
                     title: 'Фоновая работа',
-                    subtitle: 'Работа приложения в фоне',
+                    subtitle: 'Отключить оптимизацию батареи',
                     granted: backgroundPermission,
-                    onTap: () => _requestPermission('background'),
+                    buttonText: 'Открыть',
+                    onTap: _openBatterySettings,
                   ),
                 ],
               ),
@@ -120,12 +175,14 @@ class _PermissionCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool granted;
+  final String buttonText;
   final VoidCallback onTap;
 
   const _PermissionCard({
     required this.title,
     required this.subtitle,
     required this.granted,
+    required this.buttonText,
     required this.onTap,
   });
 
@@ -166,7 +223,7 @@ class _PermissionCard extends StatelessWidget {
           const SizedBox(width: 10),
           granted
               ? const Text(
-            'Разрешено',
+            'Готово',
             style: TextStyle(
               color: AppColors.success,
               fontSize: 12,
@@ -175,7 +232,7 @@ class _PermissionCard extends StatelessWidget {
           )
               : TextButton(
             onPressed: onTap,
-            child: const Text('Выдать'),
+            child: Text(buttonText),
           ),
         ],
       ),
