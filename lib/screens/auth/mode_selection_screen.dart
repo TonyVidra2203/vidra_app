@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_colors.dart';
 import '../../models/app_mode.dart';
 import '../../services/app_mode_service.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../sender/sender_status_screen.dart';
 
 class ModeSelectionScreen extends StatelessWidget {
   const ModeSelectionScreen({super.key});
@@ -13,7 +15,13 @@ class ModeSelectionScreen extends StatelessWidget {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => const DashboardScreen(),
+        builder: (_) {
+          if (mode == AppMode.sender) {
+            return const SenderStatusScreen();
+          }
+
+          return const DashboardScreen();
+        },
       ),
     );
   }
@@ -29,7 +37,6 @@ class ModeSelectionScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 30),
-
               const Text(
                 'Выберите режим',
                 style: TextStyle(
@@ -38,9 +45,7 @@ class ModeSelectionScreen extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 10),
-
               const Text(
                 'Укажите, как будет работать это устройство',
                 style: TextStyle(
@@ -48,18 +53,14 @@ class ModeSelectionScreen extends StatelessWidget {
                   fontSize: 16,
                 ),
               ),
-
               const SizedBox(height: 32),
-
               _ModeCard(
                 icon: Icons.phone_android,
                 title: AppMode.receiver.title,
                 subtitle: AppMode.receiver.subtitle,
                 onTap: () => _selectMode(context, AppMode.receiver),
               ),
-
               const SizedBox(height: 14),
-
               _ModeCard(
                 icon: Icons.send_to_mobile,
                 title: AppMode.sender.title,
@@ -103,7 +104,6 @@ class _ModeCard extends StatelessWidget {
           children: [
             Icon(icon, color: AppColors.primary, size: 34),
             const SizedBox(width: 16),
-
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -127,7 +127,6 @@ class _ModeCard extends StatelessWidget {
                 ],
               ),
             ),
-
             const Icon(Icons.chevron_right, color: AppColors.primary),
           ],
         ),
