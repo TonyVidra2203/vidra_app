@@ -5,6 +5,8 @@ import '../../widgets/common/app_bottom_nav_bar.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/dashboard/device_list.dart';
 import '../../widgets/dashboard/event_list.dart';
+import '../../navigation/app_routes.dart';
+
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -92,7 +94,9 @@ class DashboardScreen extends StatelessWidget {
               ),
             ),
 
-            const AppBottomNavBar(),
+            const AppBottomNavBar(
+              currentRoute: AppRoutes.dashboard,
+            ),
           ],
         ),
       ),
