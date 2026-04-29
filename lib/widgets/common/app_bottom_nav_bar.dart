@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_colors.dart';
 import '../../navigation/app_routes.dart';
 
@@ -22,36 +23,26 @@ class AppBottomNavBar extends StatelessWidget {
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
+        children: const [
           _NavItem(
             icon: Icons.home_outlined,
             label: 'Дашборд',
             route: AppRoutes.dashboard,
-            currentRoute: currentRoute,
           ),
           _NavItem(
             icon: Icons.chat_bubble_outline,
             label: 'Сообщения',
             route: AppRoutes.messages,
-            currentRoute: currentRoute,
-          ),
-          _NavItem(
-            icon: Icons.sync_alt,
-            label: 'Логи',
-            route: AppRoutes.logs,
-            currentRoute: currentRoute,
           ),
           _NavItem(
             icon: Icons.filter_alt_outlined,
             label: 'Фильтры',
             route: AppRoutes.filters,
-            currentRoute: currentRoute,
           ),
           _NavItem(
             icon: Icons.settings_outlined,
             label: 'Настройки',
             route: AppRoutes.settings,
-            currentRoute: currentRoute,
           ),
         ],
       ),
@@ -63,17 +54,17 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final String route;
-  final String currentRoute;
 
   const _NavItem({
     required this.icon,
     required this.label,
     required this.route,
-    required this.currentRoute,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bottomNavBar = context.findAncestorWidgetOfExactType<AppBottomNavBar>();
+    final currentRoute = bottomNavBar?.currentRoute;
     final isActive = route == currentRoute;
     final color = isActive ? AppColors.primary : AppColors.textSecondary;
 
