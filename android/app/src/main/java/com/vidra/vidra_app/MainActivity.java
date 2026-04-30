@@ -1,12 +1,8 @@
 package com.vidra.vidra_app;
 
-import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
-import android.os.PowerManager;
+import android.os.Bundle;
 import android.provider.Settings;
-import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 
@@ -14,8 +10,11 @@ import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+
 public class MainActivity extends FlutterActivity {
-    private static final String CHANNEL_NAME = "vidra/android_permissions";
+    private static final String CHANNEL = "vidra/native";
 
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
@@ -23,25 +22,23 @@ public class MainActivity extends FlutterActivity {
 
         new MethodChannel(
                 flutterEngine.getDartExecutor().getBinaryMessenger(),
-                CHANNEL_NAME
+                CHANNEL
         ).setMethodCallHandler((call, result) -> {
+
             switch (call.method) {
-                case "openNotificationListenerSettings":
-                    openNotificationListenerSettings();
-                    result.success(true);
+
+                case "getSms":
+                    result.success(getSmsList());
                     break;
 
-                case "isNotificationListenerEnabled":
-                    result.success(isNotificationListenerEnabled());
+                case "openNotificationSettings":
+                    startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+                    result.success(null);
                     break;
 
-                case "openBatteryOptimizationSettings":
-                    openBatteryOptimizationSettings();
-                    result.success(true);
-                    break;
-
-                case "isBatteryOptimizationDisabled":
-                    result.success(isBatteryOptimizationDisabled());
+                case "openBatterySettings":
+                    startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    result.success(null);
                     break;
 
                 default:
@@ -51,53 +48,12 @@ public class MainActivity extends FlutterActivity {
         });
     }
 
-    private void openNotificationListenerSettings() {
-        Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-        startActivity(intent);
-    }
-
-    private boolean isNotificationListenerEnabled() {
-        String enabledListeners = Settings.Secure.getString(
-                getContentResolver(),
-                "enabled_notification_listeners"
+    private String getSmsList() {
+        SharedPreferences prefs = getSharedPreferences(
+                "vidra_native_storage",
+                Context.MODE_PRIVATE
         );
 
-        if (enabledListeners == null || enabledListeners.isEmpty()) {
-            return false;
-        }
-
-        String[] names = enabledListeners.split(":");
-
-        for (String name : names) {
-            ComponentName componentName = ComponentName.unflattenFromString(name);
-
-            if (
-                    componentName != null &&
-                            TextUtils.equals(getPackageName(), componentName.getPackageName())
-            ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private void openBatteryOptimizationSettings() {
-        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
-
-        if (!powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-            return;
-        }
-
-        Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-        startActivity(intent);
-    }
-
-    private boolean isBatteryOptimizationDisabled() {
-        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        return powerManager.isIgnoringBatteryOptimizations(getPackageName());
+        return prefs.getString("sms_messages", "[]");
     }
 }
