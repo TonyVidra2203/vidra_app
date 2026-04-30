@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
 import 'sender_permissions_screen.dart';
 import 'sender_status_screen.dart';
@@ -14,10 +15,38 @@ class SenderSettingsScreen extends StatefulWidget {
 }
 
 class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
-  bool smsForwarding = true;
-  bool pushForwarding = true;
-  bool backgroundMode = true;
-  bool onlyWithInternet = false;
+  final SenderSettingsService settingsService = const SenderSettingsService();
+
+  SenderSettingsState settings = const SenderSettingsState(
+    smsForwarding: true,
+    pushForwarding: true,
+    backgroundMode: true,
+    onlyWithInternet: false,
+  );
+
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final loadedSettings = await settingsService.load();
+
+    if (!mounted) return;
+
+    setState(() {
+      settings = loadedSettings;
+      isLoading = false;
+    });
+  }
+
+  Future<void> _updateSettings(SenderSettingsState newSettings) async {
+    setState(() => settings = newSettings);
+    await settingsService.save(newSettings);
+  }
 
   void _onNavTap(BuildContext context, int index) {
     if (index == 1) return;
@@ -45,42 +74,56 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
           children: [
             const _Header(),
             Expanded(
-              child: ListView(
+              child: isLoading
+                  ? const Center(
+                child: CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
+              )
+                  : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
                   _SwitchCard(
                     title: 'Пересылка SMS',
                     subtitle: 'Отправлять входящие SMS на главный телефон',
-                    value: smsForwarding,
+                    value: settings.smsForwarding,
                     onChanged: (value) {
-                      setState(() => smsForwarding = value);
+                      _updateSettings(
+                        settings.copyWith(smsForwarding: value),
+                      );
                     },
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка PUSH',
                     subtitle: 'Отправлять уведомления приложений',
-                    value: pushForwarding,
+                    value: settings.pushForwarding,
                     onChanged: (value) {
-                      setState(() => pushForwarding = value);
+                      _updateSettings(
+                        settings.copyWith(pushForwarding: value),
+                      );
                     },
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Фоновый режим',
                     subtitle: 'Продолжать работу после закрытия приложения',
-                    value: backgroundMode,
+                    value: settings.backgroundMode,
                     onChanged: (value) {
-                      setState(() => backgroundMode = value);
+                      _updateSettings(
+                        settings.copyWith(backgroundMode: value),
+                      );
                     },
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Только через интернет',
                     subtitle: 'Не отправлять данные без подключения к сети',
-                    value: onlyWithInternet,
+                    value: settings.onlyWithInternet,
                     onChanged: (value) {
-                      setState(() => onlyWithInternet = value);
+                      _updateSettings(
+                        settings.copyWith(onlyWithInternet: value),
+                      );
                     },
                   ),
                 ],

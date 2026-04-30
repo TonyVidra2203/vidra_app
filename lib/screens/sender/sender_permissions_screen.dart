@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../services/sender_permission_service.dart';
@@ -79,12 +80,21 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
     );
   }
 
-  Future<void> _requestSmsPermission() async {
+  Future<void> _openSmsPermission() async {
+    if (smsPermission) {
+      await openAppSettings();
+      return;
+    }
+
     final granted = await permissionService.requestSms();
 
     if (!mounted) return;
 
     setState(() => smsPermission = granted);
+
+    if (!granted) {
+      await openAppSettings();
+    }
   }
 
   Future<void> _openNotificationSettings() async {
@@ -117,15 +127,16 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
                     title: 'SMS',
                     subtitle: 'Доступ к входящим SMS',
                     granted: smsPermission,
-                    buttonText: 'Выдать',
-                    onTap: _requestSmsPermission,
+                    buttonText: smsPermission ? 'Настройки' : 'Выдать',
+                    onTap: _openSmsPermission,
                   ),
                   const SizedBox(height: 14),
                   _PermissionCard(
                     title: 'Уведомления',
                     subtitle: 'Доступ к чтению PUSH-уведомлений',
                     granted: notificationPermission,
-                    buttonText: 'Открыть',
+                    buttonText:
+                    notificationPermission ? 'Настройки' : 'Открыть',
                     onTap: _openNotificationSettings,
                   ),
                   const SizedBox(height: 14),
@@ -133,7 +144,8 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
                     title: 'Фоновая работа',
                     subtitle: 'Отключить оптимизацию батареи',
                     granted: backgroundPermission,
-                    buttonText: 'Открыть',
+                    buttonText:
+                    backgroundPermission ? 'Настройки' : 'Открыть',
                     onTap: _openBatterySettings,
                   ),
                 ],
@@ -221,16 +233,7 @@ class _PermissionCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          granted
-              ? const Text(
-            'Готово',
-            style: TextStyle(
-              color: AppColors.success,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          )
-              : TextButton(
+          TextButton(
             onPressed: onTap,
             child: Text(buttonText),
           ),
