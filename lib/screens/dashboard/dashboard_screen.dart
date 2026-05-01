@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_colors.dart';
+import '../../navigation/app_routes.dart';
 import '../../services/dashboard_mock_data.dart';
 import '../../widgets/common/app_bottom_nav_bar.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/dashboard/device_list.dart';
 import '../../widgets/dashboard/event_list.dart';
-import '../../navigation/app_routes.dart';
-
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -15,7 +15,6 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final devices = DashboardMockData.devices;
     final events = DashboardMockData.events;
-
     final onlineCount = devices.where((d) => d.isOnline).length;
     final offlineCount = devices.where((d) => !d.isOnline).length;
 
@@ -25,7 +24,6 @@ class DashboardScreen extends StatelessWidget {
         child: Column(
           children: [
             const _Header(),
-
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
@@ -39,9 +37,7 @@ class DashboardScreen extends StatelessWidget {
                             title: 'Устройства',
                             action: 'Все устройства',
                           ),
-
                           const SizedBox(height: 18),
-
                           Row(
                             children: [
                               _StatItem(
@@ -64,16 +60,12 @@ class DashboardScreen extends StatelessWidget {
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 12),
-
                           DeviceList(devices: devices),
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
                     AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -82,9 +74,7 @@ class DashboardScreen extends StatelessWidget {
                             title: 'Последние события',
                             action: 'Все события',
                           ),
-
                           const SizedBox(height: 12),
-
                           EventList(events: events),
                         ],
                       ),
@@ -93,7 +83,6 @@ class DashboardScreen extends StatelessWidget {
                 ),
               ),
             ),
-
             const AppBottomNavBar(
               currentRoute: AppRoutes.dashboard,
             ),
@@ -109,18 +98,16 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
       child: Row(
-        children: const [
+        children: [
           Icon(
             Icons.menu,
             color: AppColors.primary,
             size: 32,
           ),
-
           SizedBox(width: 18),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,9 +120,7 @@ class _Header extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
                 SizedBox(height: 4),
-
                 Text(
                   'Главный телефон (прием данных)',
                   style: TextStyle(
@@ -146,7 +131,6 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-
           Icon(
             Icons.notifications_none,
             color: AppColors.primary,
@@ -179,9 +163,7 @@ class _CardTitle extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
-
         const Spacer(),
-
         Text(
           action,
           style: const TextStyle(
@@ -189,7 +171,6 @@ class _CardTitle extends StatelessWidget {
             fontSize: 14,
           ),
         ),
-
         const Icon(
           Icons.chevron_right,
           color: AppColors.primary,
@@ -222,9 +203,7 @@ class _StatItem extends StatelessWidget {
             color: color,
             size: 22,
           ),
-
           const SizedBox(width: 8),
-
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -235,7 +214,6 @@ class _StatItem extends StatelessWidget {
                   fontSize: 13,
                 ),
               ),
-
               Text(
                 value,
                 style: const TextStyle(

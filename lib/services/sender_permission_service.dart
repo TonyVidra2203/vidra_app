@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -8,36 +9,81 @@ class SenderPermissionService {
 
   const SenderPermissionService();
 
+  bool get _isAndroid {
+    return !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  }
+
   Future<bool> isSmsGranted() async {
-    return Permission.sms.isGranted;
+    try {
+      final status = await Permission.sms.status.timeout(
+        const Duration(seconds: 3),
+      );
+
+      return status.isGranted;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> requestSms() async {
-    final status = await Permission.sms.request();
-    return status.isGranted;
+    try {
+      final status = await Permission.sms.request().timeout(
+        const Duration(seconds: 10),
+      );
+
+      return status.isGranted;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> isNotificationListenerEnabled() async {
-    final result = await _channel.invokeMethod<bool>(
-      'isNotificationListenerEnabled',
-    );
-
-    return result ?? false;
+    return _invokeBool('isNotificationListenerEnabled');
   }
 
   Future<void> openNotificationListenerSettings() async {
-    await _channel.invokeMethod<bool>('openNotificationListenerSettings');
+    await _invokeVoid('openNotificationListenerSettings');
   }
 
   Future<bool> isBatteryOptimizationDisabled() async {
-    final result = await _channel.invokeMethod<bool>(
-      'isBatteryOptimizationDisabled',
-    );
-
-    return result ?? false;
+    return _invokeBool('isBatteryOptimizationDisabled');
   }
 
   Future<void> openBatteryOptimizationSettings() async {
-    await _channel.invokeMethod<bool>('openBatteryOptimizationSettings');
+    await _invokeVoid('openBatteryOptimizationSettings');
+  }
+
+  Future<void> openAppSettingsSafe() async {
+    try {
+      await openAppSettings().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      return;
+    }
+  }
+
+  Future<bool> _invokeBool(String method) async {
+    if (!_isAndroid) return false;
+
+    try {
+      final result = await _channel.invokeMethod<bool>(method).timeout(
+        const Duration(seconds: 3),
+      );
+
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _invokeVoid(String method) async {
+    if (!_isAndroid) return;
+
+    try {
+      await _channel.invokeMethod<void>(method).timeout(
+        const Duration(seconds: 3),
+      );
+    } catch (_) {
+      return;
+    }
   }
 }

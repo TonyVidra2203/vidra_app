@@ -32,17 +32,13 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   bool pushPermission = false;
   bool backgroundPermission = false;
   bool isLoading = true;
+  String? loadError;
 
   bool get isSmsReady => !settings.smsForwarding || smsPermission;
-
   bool get isPushReady => !settings.pushForwarding || pushPermission;
-
-  bool get isBackgroundReady =>
-      !settings.backgroundMode || backgroundPermission;
-
+  bool get isBackgroundReady => !settings.backgroundMode || backgroundPermission;
   bool get hasActiveForwarding =>
       settings.smsForwarding || settings.pushForwarding;
-
   bool get isReady =>
       hasActiveForwarding && isSmsReady && isPushReady && isBackgroundReady;
 
@@ -67,22 +63,57 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 
   Future<void> _loadStatus() async {
-    final loadedSettings = await settingsService.load();
-    final smsGranted = await permissionService.isSmsGranted();
-    final pushGranted =
-    await permissionService.isNotificationListenerEnabled();
-    final backgroundGranted =
-    await permissionService.isBatteryOptimizationDisabled();
+    if (mounted) {
+      setState(() {
+        isLoading = true;
+        loadError = null;
+      });
+    }
 
-    if (!mounted) return;
+    try {
+      final loadedSettings = await settingsService.load();
 
-    setState(() {
-      settings = loadedSettings;
-      smsPermission = smsGranted;
-      pushPermission = pushGranted;
-      backgroundPermission = backgroundGranted;
-      isLoading = false;
-    });
+      bool smsGranted = false;
+      bool pushGranted = false;
+      bool backgroundGranted = false;
+
+      try {
+        smsGranted = await permissionService.isSmsGranted();
+      } catch (_) {
+        smsGranted = false;
+      }
+
+      try {
+        pushGranted = await permissionService.isNotificationListenerEnabled();
+      } catch (_) {
+        pushGranted = false;
+      }
+
+      try {
+        backgroundGranted =
+        await permissionService.isBatteryOptimizationDisabled();
+      } catch (_) {
+        backgroundGranted = false;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        settings = loadedSettings;
+        smsPermission = smsGranted;
+        pushPermission = pushGranted;
+        backgroundPermission = backgroundGranted;
+        isLoading = false;
+        loadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+        loadError = e.toString();
+      });
+    }
   }
 
   void _onNavTap(BuildContext context, int index) {
@@ -103,6 +134,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 
   String _mainStatusTitle() {
+    if (loadError != null) {
+      return 'Ошибка проверки статуса';
+    }
+
     if (!hasActiveForwarding) {
       return 'Передача отключена';
     }
@@ -115,6 +150,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 
   String _mainStatusSubtitle() {
+    if (loadError != null) {
+      return 'Откройте вкладку разрешений и проверьте настройки Android';
+    }
+
     if (!hasActiveForwarding) {
       return 'В настройках отключены SMS и PUSH';
     }
@@ -127,12 +166,14 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 
   Color _mainStatusColor() {
+    if (loadError != null) return AppColors.danger;
     if (isReady) return AppColors.success;
     if (!hasActiveForwarding) return AppColors.warning;
     return AppColors.danger;
   }
 
   IconData _mainStatusIcon() {
+    if (loadError != null) return Icons.error;
     if (isReady) return Icons.check_circle;
     if (!hasActiveForwarding) return Icons.pause_circle;
     return Icons.error;
@@ -238,6 +279,18 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
                         ),
                       ],
                     ),
+                    if (loadError != null) ...[
+                      const SizedBox(height: 16),
+                      AppCard(
+                        child: Text(
+                          loadError!,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 46,
@@ -301,7 +354,7 @@ class _MainStatusCard extends StatelessWidget {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.16),
+            backgroundColor: color.withValues(alpha: 0.16),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 14),

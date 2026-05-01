@@ -16,6 +16,7 @@ class SenderSettingsScreen extends StatefulWidget {
 
 class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
   final SenderSettingsService settingsService = const SenderSettingsService();
+  final TextEditingController deviceNameController = TextEditingController();
 
   SenderSettingsState settings = const SenderSettingsState(
     smsForwarding: true,
@@ -25,6 +26,7 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
   );
 
   bool isLoading = true;
+  bool isSaving = false;
 
   @override
   void initState() {
@@ -32,20 +34,56 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
     _loadSettings();
   }
 
+  @override
+  void dispose() {
+    deviceNameController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSettings() async {
-    final loadedSettings = await settingsService.load();
+    try {
+      final loadedSettings = await settingsService.load();
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      settings = loadedSettings;
-      isLoading = false;
-    });
+      setState(() {
+        settings = loadedSettings;
+        deviceNameController.text = loadedSettings.deviceName;
+        isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => isLoading = false);
+    }
   }
 
   Future<void> _updateSettings(SenderSettingsState newSettings) async {
-    setState(() => settings = newSettings);
+    setState(() {
+      settings = newSettings;
+      isSaving = true;
+    });
+
     await settingsService.save(newSettings);
+
+    if (!mounted) return;
+
+    setState(() => isSaving = false);
+  }
+
+  Future<void> _saveDeviceName() async {
+    final deviceName = deviceNameController.text.trim();
+
+    await _updateSettings(
+      settings.copyWith(
+        deviceName: deviceName.isEmpty ? 'Рабочий телефон' : deviceName,
+      ),
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Настройки сохранены')),
+    );
   }
 
   void _onNavTap(BuildContext context, int index) {
@@ -83,9 +121,55 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Рабочее устройство',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Название будет отображаться в личном кабинете и на главном телефоне.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: deviceNameController,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: 'Рабочий телефон',
+                            labelText: 'Название устройства',
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 46,
+                          child: ElevatedButton(
+                            onPressed: isSaving ? null : _saveDeviceName,
+                            child: Text(
+                              isSaving ? 'Сохраняю...' : 'Сохранить',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка SMS',
-                    subtitle: 'Отправлять входящие SMS на главный телефон',
+                    subtitle: 'Передавать входящие SMS в аккаунт VidRA',
                     value: settings.smsForwarding,
                     onChanged: (value) {
                       _updateSettings(
@@ -96,7 +180,7 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка PUSH',
-                    subtitle: 'Отправлять уведомления приложений',
+                    subtitle: 'Передавать уведомления приложений в аккаунт VidRA',
                     value: settings.pushForwarding,
                     onChanged: (value) {
                       _updateSettings(
@@ -205,7 +289,8 @@ class _SwitchCard extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: AppColors.primary,
+            activeThumbColor: AppColors.primary,
+            activeTrackColor: AppColors.primary.withOpacity(0.4),
           ),
         ],
       ),
