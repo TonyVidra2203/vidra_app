@@ -1,5 +1,11 @@
 package com.vidra.vidra_app;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.os.Build;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -7,37 +13,116 @@ import org.json.JSONObject;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
-public class NetworkClient {
-    private static final String TAG = "VidRA_NET";
+public final class NetworkClient {
+    private static final String TAG = "VidRA_NETWORK";
 
-    // ⚠️ ВРЕМЕННО (потом заменим на твой сервер)
-    private static final String API_URL = "https://webhook.site/YOUR_TEST_URL";
+    private static final String SETTINGS_PREFS = "vidra_sender_settings";
+    private static final String KEY_ONLY_WITH_INTERNET = "onlyWithInternet";
+    private static final String KEY_RELAY_URL = "relayUrl";
+    private static final String KEY_RELAY_API_KEY = "relayApiKey";
 
-    public static void sendEvent(JSONObject data) {
-        new Thread(() -> {
-            try {
-                URL url = new URL(API_URL);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+    private static final int CONNECT_TIMEOUT_MS = 10000;
+    private static final int READ_TIMEOUT_MS = 10000;
 
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setDoOutput(true);
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
+    private NetworkClient() {
+    }
 
-                OutputStream os = conn.getOutputStream();
-                os.write(data.toString().getBytes("UTF-8"));
-                os.close();
+    public static void sendEvent(Context context, JSONObject payload) {
+        if (context == null || payload == null) {
+            return;
+        }
 
-                int responseCode = conn.getResponseCode();
+        SharedPreferences prefs = context.getSharedPreferences(
+                SETTINGS_PREFS,
+                Context.MODE_PRIVATE
+        );
 
-                Log.d(TAG, "Sent event, code=" + responseCode);
+        boolean onlyWithInternet = prefs.getBoolean(KEY_ONLY_WITH_INTERNET, false);
 
-                conn.disconnect();
-            } catch (Exception e) {
-                Log.e(TAG, "Send failed", e);
+        if (onlyWithInternet && !hasInternet(context)) {
+            Log.d(TAG, "Internet is required, but device is offline");
+            return;
+        }
+
+        String relayUrl = prefs.getString(KEY_RELAY_URL, "");
+        String apiKey = prefs.getString(KEY_RELAY_API_KEY, "");
+
+        if (relayUrl == null || relayUrl.trim().isEmpty()) {
+            Log.d(TAG, "Relay URL is empty. Event saved locally only.");
+            return;
+        }
+
+        String cleanRelayUrl = relayUrl.trim();
+        String cleanApiKey = apiKey == null ? "" : apiKey.trim();
+        String jsonBody = payload.toString();
+
+        new Thread(() -> postJson(cleanRelayUrl, cleanApiKey, jsonBody)).start();
+    }
+
+    private static void postJson(String relayUrl, String apiKey, String jsonBody) {
+        HttpURLConnection connection = null;
+
+        try {
+            URL url = new URL(relayUrl);
+            connection = (HttpURLConnection) url.openConnection();
+
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+
+            if (!apiKey.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+                connection.setRequestProperty("X-Api-Key", apiKey);
             }
-        }).start();
+
+            byte[] bodyBytes = jsonBody.getBytes(StandardCharsets.UTF_8);
+
+            try (OutputStream outputStream = connection.getOutputStream()) {
+                outputStream.write(bodyBytes);
+            }
+
+            int responseCode = connection.getResponseCode();
+            Log.d(TAG, "Relay response code: " + responseCode);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to send event to relay", e);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private static boolean hasInternet(Context context) {
+        try {
+            ConnectivityManager manager =
+                    (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+
+            if (manager == null) {
+                return false;
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network network = manager.getActiveNetwork();
+
+                if (network == null) {
+                    return false;
+                }
+
+                NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+
+                return capabilities != null
+                        && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            }
+
+            android.net.NetworkInfo activeNetwork = manager.getActiveNetworkInfo();
+
+            return activeNetwork != null && activeNetwork.isConnected();
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

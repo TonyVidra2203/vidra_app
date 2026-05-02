@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../services/sender_permission_service.dart';
+import '../../services/native_main_phone_service.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
 import 'sender_permissions_screen.dart';
@@ -18,8 +18,7 @@ class SenderStatusScreen extends StatefulWidget {
 class _SenderStatusScreenState extends State<SenderStatusScreen>
     with WidgetsBindingObserver {
   final SenderSettingsService settingsService = const SenderSettingsService();
-  final SenderPermissionService permissionService =
-  const SenderPermissionService();
+  final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
   SenderSettingsState settings = const SenderSettingsState(
     smsForwarding: true,
@@ -28,19 +27,31 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     onlyWithInternet: false,
   );
 
-  bool smsPermission = false;
-  bool pushPermission = false;
-  bool backgroundPermission = false;
-  bool isLoading = true;
-  String? loadError;
+  MainPhoneNativeStatus nativeStatus = const MainPhoneNativeStatus();
+  List<NativeForwardedMessage> messages = <NativeForwardedMessage>[];
 
-  bool get isSmsReady => !settings.smsForwarding || smsPermission;
-  bool get isPushReady => !settings.pushForwarding || pushPermission;
-  bool get isBackgroundReady => !settings.backgroundMode || backgroundPermission;
+  bool isLoading = true;
+
   bool get hasActiveForwarding =>
       settings.smsForwarding || settings.pushForwarding;
+
+  bool get isSmsReady =>
+      !settings.smsForwarding || nativeStatus.smsPermission;
+
+  bool get isPushReady =>
+      !settings.pushForwarding || nativeStatus.notificationListener;
+
+  bool get isBackgroundReady =>
+      !settings.backgroundMode || nativeStatus.batteryOptimizationDisabled;
+
+  bool get isRelayReady => nativeStatus.relayConfigured;
+
   bool get isReady =>
-      hasActiveForwarding && isSmsReady && isPushReady && isBackgroundReady;
+      hasActiveForwarding &&
+          isSmsReady &&
+          isPushReady &&
+          isBackgroundReady &&
+          isRelayReady;
 
   @override
   void initState() {
@@ -63,61 +74,31 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 
   Future<void> _loadStatus() async {
-    if (mounted) {
-      setState(() {
-        isLoading = true;
-        loadError = null;
-      });
+    final loadedSettings = await settingsService.load();
+    final loadedStatus = await nativeService.getStatus();
+    final loadedMessages = await nativeService.getMessages();
+
+    if (!mounted) {
+      return;
     }
 
-    try {
-      final loadedSettings = await settingsService.load();
+    setState(() {
+      settings = loadedSettings;
+      nativeStatus = loadedStatus;
+      messages = loadedMessages;
+      isLoading = false;
+    });
+  }
 
-      bool smsGranted = false;
-      bool pushGranted = false;
-      bool backgroundGranted = false;
-
-      try {
-        smsGranted = await permissionService.isSmsGranted();
-      } catch (_) {
-        smsGranted = false;
-      }
-
-      try {
-        pushGranted = await permissionService.isNotificationListenerEnabled();
-      } catch (_) {
-        pushGranted = false;
-      }
-
-      try {
-        backgroundGranted =
-        await permissionService.isBatteryOptimizationDisabled();
-      } catch (_) {
-        backgroundGranted = false;
-      }
-
-      if (!mounted) return;
-
-      setState(() {
-        settings = loadedSettings;
-        smsPermission = smsGranted;
-        pushPermission = pushGranted;
-        backgroundPermission = backgroundGranted;
-        isLoading = false;
-        loadError = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        isLoading = false;
-        loadError = e.toString();
-      });
-    }
+  Future<void> _clearMessages() async {
+    await nativeService.clearMessages();
+    await _loadStatus();
   }
 
   void _onNavTap(BuildContext context, int index) {
-    if (index == 0) return;
+    if (index == 0) {
+      return;
+    }
 
     Navigator.pushReplacement(
       context,
@@ -134,48 +115,58 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 
   String _mainStatusTitle() {
-    if (loadError != null) {
-      return 'Ошибка проверки статуса';
-    }
-
     if (!hasActiveForwarding) {
       return 'Передача отключена';
     }
 
+    if (!isRelayReady) {
+      return 'Не указан сервер';
+    }
+
     if (isReady) {
-      return 'Готово к работе';
+      return 'Главный телефон работает';
     }
 
     return 'Требуется настройка';
   }
 
   String _mainStatusSubtitle() {
-    if (loadError != null) {
-      return 'Откройте вкладку разрешений и проверьте настройки Android';
-    }
-
     if (!hasActiveForwarding) {
       return 'В настройках отключены SMS и PUSH';
     }
 
-    if (isReady) {
-      return 'Телефон готов передавать SMS и PUSH-уведомления';
+    if (!isRelayReady) {
+      return 'Укажи адрес сервера в настройках передачи';
     }
 
-    return 'Проверь разрешения или настройки передачи';
+    if (isReady) {
+      return 'Android принимает SMS/PUSH и готов отправлять их на сервер';
+    }
+
+    return 'Проверь разрешения Android и фоновую работу';
   }
 
   Color _mainStatusColor() {
-    if (loadError != null) return AppColors.danger;
-    if (isReady) return AppColors.success;
-    if (!hasActiveForwarding) return AppColors.warning;
+    if (isReady) {
+      return AppColors.success;
+    }
+
+    if (!hasActiveForwarding || !isRelayReady) {
+      return AppColors.warning;
+    }
+
     return AppColors.danger;
   }
 
   IconData _mainStatusIcon() {
-    if (loadError != null) return Icons.error;
-    if (isReady) return Icons.check_circle;
-    if (!hasActiveForwarding) return Icons.pause_circle;
+    if (isReady) {
+      return Icons.check_circle;
+    }
+
+    if (!hasActiveForwarding || !isRelayReady) {
+      return Icons.warning_rounded;
+    }
+
     return Icons.error;
   }
 
@@ -207,90 +198,77 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
                     ),
                     const SizedBox(height: 16),
                     _StatusGroupCard(
+                      title: 'Android-интеграция',
+                      children: [
+                        _StatusRow(
+                          title: 'SMS-приёмник',
+                          subtitle: nativeStatus.smsPermission
+                              ? 'Android разрешил чтение входящих SMS'
+                              : 'Нет разрешения на SMS',
+                          isReady: nativeStatus.smsPermission,
+                        ),
+                        _StatusRow(
+                          title: 'PUSH-приёмник',
+                          subtitle: nativeStatus.notificationListener
+                              ? 'Доступ к уведомлениям включён'
+                              : 'Доступ к уведомлениям не включён',
+                          isReady: nativeStatus.notificationListener,
+                        ),
+                        _StatusRow(
+                          title: 'Фоновая работа',
+                          subtitle: nativeStatus.batteryOptimizationDisabled
+                              ? 'Ограничение батареи отключено'
+                              : 'Android может остановить приложение',
+                          isReady:
+                          nativeStatus.batteryOptimizationDisabled,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _StatusGroupCard(
                       title: 'Передача данных',
                       children: [
                         _StatusRow(
                           title: 'SMS',
                           subtitle: settings.smsForwarding
-                              ? 'Передача SMS включена'
-                              : 'Передача SMS отключена',
+                              ? 'Реальная пересылка SMS включена'
+                              : 'Пересылка SMS отключена',
                           isReady: settings.smsForwarding,
                         ),
                         _StatusRow(
                           title: 'PUSH',
                           subtitle: settings.pushForwarding
-                              ? 'Передача PUSH включена'
-                              : 'Передача PUSH отключена',
+                              ? 'Реальная пересылка PUSH включена'
+                              : 'Пересылка PUSH отключена',
                           isReady: settings.pushForwarding,
+                        ),
+                        _StatusRow(
+                          title: 'Сервер',
+                          subtitle: nativeStatus.relayConfigured
+                              ? 'Адрес сервера сохранён'
+                              : 'Адрес сервера не указан',
+                          isReady: nativeStatus.relayConfigured,
                         ),
                         _StatusRow(
                           title: 'Только через интернет',
                           subtitle: settings.onlyWithInternet
-                              ? 'Без интернета данные не отправляются'
-                              : 'Ограничение отключено',
+                              ? 'Без интернета события не отправляются'
+                              : 'События сохраняются локально',
                           isReady: true,
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _StatusGroupCard(
-                      title: 'Разрешения',
-                      children: [
-                        _StatusRow(
-                          title: 'SMS-разрешение',
-                          subtitle: smsPermission
-                              ? 'Доступ к SMS выдан'
-                              : 'Нет доступа к SMS',
-                          isReady: smsPermission,
-                        ),
-                        _StatusRow(
-                          title: 'Доступ к PUSH',
-                          subtitle: pushPermission
-                              ? 'Доступ к уведомлениям выдан'
-                              : 'Нет доступа к уведомлениям',
-                          isReady: pushPermission,
-                        ),
-                        _StatusRow(
-                          title: 'Фоновая работа',
-                          subtitle: backgroundPermission
-                              ? 'Оптимизация батареи отключена'
-                              : 'Фоновая работа может ограничиваться',
-                          isReady: backgroundPermission,
-                        ),
-                      ],
+                    _CounterCard(
+                      smsCount: nativeStatus.smsCount,
+                      pushCount: nativeStatus.pushCount,
+                      totalCount: nativeStatus.totalCount,
                     ),
                     const SizedBox(height: 16),
-                    _StatusGroupCard(
-                      title: 'Сервис',
-                      children: [
-                        _StatusRow(
-                          title: 'Режим работы',
-                          subtitle: settings.backgroundMode
-                              ? 'Фоновый режим включен'
-                              : 'Фоновый режим отключен',
-                          isReady: settings.backgroundMode,
-                        ),
-                        _StatusRow(
-                          title: 'Готовность',
-                          subtitle: isReady
-                              ? 'Можно принимать и передавать данные'
-                              : 'Есть проблемы в настройках',
-                          isReady: isReady,
-                        ),
-                      ],
+                    _MessagesCard(
+                      messages: messages,
+                      onClear: messages.isEmpty ? null : _clearMessages,
                     ),
-                    if (loadError != null) ...[
-                      const SizedBox(height: 16),
-                      AppCard(
-                        child: Text(
-                          loadError!,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 46,
@@ -323,7 +301,7 @@ class _Header extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
       child: Center(
         child: Text(
-          'Статус устройства',
+          'Главный телефон',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 22,
@@ -354,7 +332,7 @@ class _MainStatusCard extends StatelessWidget {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withValues(alpha: 0.16),
+            backgroundColor: color.withOpacity(0.16),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 14),
@@ -458,6 +436,198 @@ class _StatusRow extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CounterCard extends StatelessWidget {
+  final int smsCount;
+  final int pushCount;
+  final int totalCount;
+
+  const _CounterCard({
+    required this.smsCount,
+    required this.pushCount,
+    required this.totalCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: _CounterItem(
+              title: 'SMS',
+              value: smsCount.toString(),
+              icon: Icons.sms_outlined,
+            ),
+          ),
+          Expanded(
+            child: _CounterItem(
+              title: 'PUSH',
+              value: pushCount.toString(),
+              icon: Icons.notifications_none,
+            ),
+          ),
+          Expanded(
+            child: _CounterItem(
+              title: 'Всего',
+              value: totalCount.toString(),
+              icon: Icons.all_inbox_outlined,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CounterItem extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _CounterItem({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: AppColors.primary),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MessagesCard extends StatelessWidget {
+  final List<NativeForwardedMessage> messages;
+  final VoidCallback? onClear;
+
+  const _MessagesCard({
+    required this.messages,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Последние события Android',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onClear,
+                child: const Text('Очистить'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (messages.isEmpty)
+            const Text(
+              'Пока нет SMS или PUSH. После входящего события оно появится здесь.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            )
+          else
+            ...messages.take(8).map(
+                  (message) => _MessageRow(message: message),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageRow extends StatelessWidget {
+  final NativeForwardedMessage message;
+
+  const _MessageRow({
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = message.isSms ? Icons.sms_outlined : Icons.notifications_none;
+    final label = message.isSms ? 'SMS' : 'PUSH';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: Icon(
+              icon,
+              color: AppColors.primary,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$label • ${message.displayTitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message.displaySubtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,

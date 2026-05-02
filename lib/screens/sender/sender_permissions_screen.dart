@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../services/sender_permission_service.dart';
+import '../../services/native_main_phone_service.dart';
 import '../../widgets/common/app_card.dart';
 import 'sender_settings_screen.dart';
 import 'sender_status_screen.dart';
@@ -18,22 +17,21 @@ class SenderPermissionsScreen extends StatefulWidget {
 
 class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
     with WidgetsBindingObserver {
-  final SenderPermissionService permissionService =
-  const SenderPermissionService();
+  final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
-  bool smsPermission = false;
-  bool notificationPermission = false;
-  bool backgroundPermission = false;
-
+  MainPhoneNativeStatus status = const MainPhoneNativeStatus();
   bool isLoading = true;
-  bool isActionRunning = false;
-  String? loadError;
+
+  bool get allReady =>
+      status.smsPermission &&
+          status.notificationListener &&
+          status.batteryOptimizationDisabled;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadPermissions();
+    _loadStatus();
   }
 
   @override
@@ -45,43 +43,49 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _loadPermissions();
+      _loadStatus();
     }
   }
 
-  Future<void> _loadPermissions() async {
-    setState(() {
-      isLoading = true;
-      loadError = null;
-    });
+  Future<void> _loadStatus() async {
+    final loadedStatus = await nativeService.getStatus();
 
-    try {
-      final sms = await permissionService.isSmsGranted();
-      final notification =
-      await permissionService.isNotificationListenerEnabled();
-      final background =
-      await permissionService.isBatteryOptimizationDisabled();
-
-      if (!mounted) return;
-
-      setState(() {
-        smsPermission = sms;
-        notificationPermission = notification;
-        backgroundPermission = background;
-        isLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        isLoading = false;
-        loadError = e.toString();
-      });
+    if (!mounted) {
+      return;
     }
+
+    setState(() {
+      status = loadedStatus;
+      isLoading = false;
+    });
+  }
+
+  Future<void> _requestSmsPermissions() async {
+    await nativeService.requestSmsPermissions();
+    await _loadStatus();
+  }
+
+  Future<void> _requestPostNotificationPermission() async {
+    await nativeService.requestPostNotificationPermission();
+    await _loadStatus();
+  }
+
+  Future<void> _openNotificationListenerSettings() async {
+    await nativeService.openNotificationListenerSettings();
+  }
+
+  Future<void> _openBatteryOptimizationSettings() async {
+    await nativeService.openBatteryOptimizationSettings();
+  }
+
+  Future<void> _openAppSettings() async {
+    await nativeService.openAppSettings();
   }
 
   void _onNavTap(BuildContext context, int index) {
-    if (index == 2) return;
+    if (index == 2) {
+      return;
+    }
 
     Navigator.pushReplacement(
       context,
@@ -94,66 +98,6 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
           return const SenderSettingsScreen();
         },
       ),
-    );
-  }
-
-  Future<void> _runAction(Future<void> Function() action) async {
-    if (isActionRunning) return;
-
-    setState(() => isActionRunning = true);
-
-    try {
-      await action();
-    } finally {
-      if (!mounted) return;
-
-      setState(() => isActionRunning = false);
-      await _loadPermissions();
-    }
-  }
-
-  Future<void> _openSmsPermission() async {
-    await _runAction(() async {
-      if (smsPermission) {
-        await openAppSettings();
-        return;
-      }
-
-      final granted = await permissionService.requestSms();
-
-      if (!granted) {
-        await openAppSettings();
-      }
-    });
-  }
-
-  Future<void> _openNotificationSettings() async {
-    await _runAction(() async {
-      await permissionService.openNotificationListenerSettings();
-
-      if (!mounted) return;
-
-      _showInfo(
-        'Включи VidRA в списке доступа к уведомлениям, затем вернись назад.',
-      );
-    });
-  }
-
-  Future<void> _openBatterySettings() async {
-    await _runAction(() async {
-      await permissionService.openBatteryOptimizationSettings();
-
-      if (!mounted) return;
-
-      _showInfo(
-        'Если системное окно не открылось, открой настройки приложения VidRA и отключи ограничение батареи вручную.',
-      );
-    });
-  }
-
-  void _showInfo(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
     );
   }
 
@@ -173,73 +117,69 @@ class _SenderPermissionsScreenState extends State<SenderPermissionsScreen>
                 ),
               )
                   : RefreshIndicator(
-                onRefresh: _loadPermissions,
+                onRefresh: _loadStatus,
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    if (loadError != null) ...[
-                      AppCard(
-                        child: Text(
-                          loadError!,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
+                    _SummaryCard(allReady: allReady),
+                    const SizedBox(height: 16),
                     _PermissionCard(
+                      icon: Icons.sms_outlined,
                       title: 'SMS',
-                      subtitle: smsPermission
-                          ? 'Доступ к входящим SMS выдан'
-                          : 'Нужно разрешить доступ к SMS',
-                      granted: smsPermission,
-                      buttonText: smsPermission ? 'Настройки' : 'Выдать',
-                      disabled: isActionRunning,
-                      onTap: _openSmsPermission,
+                      description:
+                      'Нужно для чтения входящих SMS на главном телефоне.',
+                      isReady: status.smsPermission,
+                      readyText: 'Разрешение SMS включено',
+                      actionText: 'Разрешить SMS',
+                      onPressed: _requestSmsPermissions,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     _PermissionCard(
-                      title: 'Уведомления',
-                      subtitle: notificationPermission
-                          ? 'VidRA может читать PUSH-уведомления'
-                          : 'Нужно включить доступ к уведомлениям',
-                      granted: notificationPermission,
-                      buttonText: notificationPermission
-                          ? 'Настройки'
-                          : 'Открыть',
-                      disabled: isActionRunning,
-                      onTap: _openNotificationSettings,
+                      icon: Icons.notifications_none,
+                      title: 'PUSH-уведомления',
+                      description:
+                      'Нужно для получения уведомлений от банков, Telegram и других приложений.',
+                      isReady: status.notificationListener,
+                      readyText: 'Доступ к уведомлениям включён',
+                      actionText: 'Открыть доступ к уведомлениям',
+                      onPressed: _openNotificationListenerSettings,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     _PermissionCard(
+                      icon: Icons.battery_saver_outlined,
                       title: 'Фоновая работа',
-                      subtitle: backgroundPermission
-                          ? 'Android не ограничивает работу VidRA'
-                          : 'Нужно отключить оптимизацию батареи',
-                      granted: backgroundPermission,
-                      buttonText: backgroundPermission
-                          ? 'Настройки'
-                          : 'Открыть',
-                      disabled: isActionRunning,
-                      onTap: _openBatterySettings,
+                      description:
+                      'Нужно, чтобы Android не останавливал VidRA в фоне.',
+                      isReady: status.batteryOptimizationDisabled,
+                      readyText: 'Ограничение батареи отключено',
+                      actionText: 'Отключить ограничение батареи',
+                      onPressed: _openBatteryOptimizationSettings,
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
+                    _PermissionCard(
+                      icon: Icons.app_settings_alt_outlined,
+                      title: 'Уведомления Android 13+',
+                      description:
+                      'Нужно для системного разрешения уведомлений на новых версиях Android.',
+                      isReady: status.postNotificationPermission,
+                      readyText: 'Системные уведомления разрешены',
+                      actionText: 'Разрешить уведомления',
+                      onPressed: _requestPostNotificationPermission,
+                    ),
+                    const SizedBox(height: 18),
                     SizedBox(
                       height: 46,
                       child: OutlinedButton(
-                        onPressed:
-                        isActionRunning ? null : _loadPermissions,
-                        child: const Text('Обновить разрешения'),
+                        onPressed: _openAppSettings,
+                        child: const Text('Открыть настройки приложения'),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Важно: на эмуляторе Android фоновая работа может отображаться некорректно. На реальном телефоне нужно отключить оптимизацию батареи для VidRA.',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 12,
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 46,
+                      child: ElevatedButton(
+                        onPressed: _loadStatus,
+                        child: const Text('Проверить снова'),
                       ),
                     ),
                   ],
@@ -278,34 +218,26 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _PermissionCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final bool granted;
-  final String buttonText;
-  final bool disabled;
-  final VoidCallback onTap;
+class _SummaryCard extends StatelessWidget {
+  final bool allReady;
 
-  const _PermissionCard({
-    required this.title,
-    required this.subtitle,
-    required this.granted,
-    required this.buttonText,
-    required this.disabled,
-    required this.onTap,
+  const _SummaryCard({
+    required this.allReady,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = granted ? AppColors.success : AppColors.warning;
+    final color = allReady ? AppColors.success : AppColors.warning;
 
     return AppCard(
       child: Row(
         children: [
-          Icon(
-            granted ? Icons.check_circle : Icons.error_outline,
-            color: color,
-            size: 30,
+          CircleAvatar(
+            backgroundColor: color.withOpacity(0.16),
+            child: Icon(
+              allReady ? Icons.check_circle : Icons.warning_rounded,
+              color: color,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -313,29 +245,113 @@ class _PermissionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                  allReady
+                      ? 'Все разрешения включены'
+                      : 'Нужно включить разрешения',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
+                const Text(
+                  'После включения разрешений VidRA сможет принимать SMS и PUSH в фоне.',
+                  style: TextStyle(
                     color: AppColors.textSecondary,
-                    fontSize: 12,
+                    fontSize: 13,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          TextButton(
-            onPressed: disabled ? null : onTap,
-            child: Text(buttonText),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final bool isReady;
+  final String readyText;
+  final String actionText;
+  final VoidCallback onPressed;
+
+  const _PermissionCard({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.isReady,
+    required this.readyText,
+    required this.actionText,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isReady ? AppColors.success : AppColors.danger;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: AppColors.primary.withOpacity(0.12),
+                child: Icon(
+                  icon,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Icon(
+                isReady ? Icons.check_circle : Icons.error_outline,
+                color: color,
+              ),
+            ],
           ),
+          const SizedBox(height: 10),
+          Text(
+            description,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isReady ? readyText : 'Не включено',
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (!isReady) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                onPressed: onPressed,
+                child: Text(actionText),
+              ),
+            ),
+          ],
         ],
       ),
     );

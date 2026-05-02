@@ -21,6 +21,7 @@ public class NotificationForwarderService extends NotificationListenerService {
     private static final String KEY_DEVICE_ID = "deviceId";
 
     private static final String PUSH_LIST_KEY = "push_messages";
+
     private static final int MAX_MESSAGES = 100;
 
     @Override
@@ -36,6 +37,11 @@ public class NotificationForwarderService extends NotificationListenerService {
 
         try {
             String packageName = sbn.getPackageName();
+
+            if (packageName == null || packageName.equals(getPackageName())) {
+                return;
+            }
+
             String appName = getAppName(packageName);
             String title = extractNotificationTitle(sbn);
             String text = extractNotificationText(sbn);
@@ -45,29 +51,19 @@ public class NotificationForwarderService extends NotificationListenerService {
             }
 
             long receivedAt = System.currentTimeMillis();
-            String deviceName = getDeviceName();
-            String deviceId = getSavedVidraDeviceId();
-
-            Log.d(TAG, "Incoming PUSH captured");
-            Log.d(TAG, "Device name: " + deviceName);
-            Log.d(TAG, "Device id: " + deviceId);
-            Log.d(TAG, "App: " + appName);
-            Log.d(TAG, "Package: " + packageName);
-            Log.d(TAG, "Title: " + title);
-            Log.d(TAG, "Text: " + text);
 
             JSONObject payload = buildPayload(
                     packageName,
                     appName,
                     title,
                     text,
-                    deviceName,
-                    deviceId,
                     receivedAt
             );
 
             savePushLocally(payload);
-            NetworkClient.sendEvent(payload);
+            NetworkClient.sendEvent(this, payload);
+
+            Log.d(TAG, "Incoming PUSH captured and processed");
         } catch (Exception e) {
             Log.e(TAG, "Failed to process PUSH", e);
         }
@@ -161,22 +157,20 @@ public class NotificationForwarderService extends NotificationListenerService {
             String appName,
             String title,
             String text,
-            String deviceName,
-            String deviceId,
             long receivedAt
     ) {
         JSONObject payload = new JSONObject();
 
         try {
-            payload.put("id", String.valueOf(receivedAt));
+            payload.put("id", "push_" + receivedAt);
             payload.put("type", "push");
             payload.put("sender", appName);
             payload.put("app", appName);
             payload.put("packageName", packageName);
             payload.put("title", title);
             payload.put("text", text);
-            payload.put("deviceName", deviceName);
-            payload.put("deviceId", deviceId);
+            payload.put("deviceName", getDeviceName());
+            payload.put("deviceId", getSavedVidraDeviceId());
             payload.put("status", "received");
             payload.put("receivedAt", receivedAt);
         } catch (Exception e) {
@@ -200,6 +194,7 @@ public class NotificationForwarderService extends NotificationListenerService {
             newMessages.put(message);
 
             int limit = Math.min(oldMessages.length(), MAX_MESSAGES - 1);
+
             for (int i = 0; i < limit; i++) {
                 newMessages.put(oldMessages.getJSONObject(i));
             }
@@ -207,8 +202,6 @@ public class NotificationForwarderService extends NotificationListenerService {
             prefs.edit()
                     .putString(PUSH_LIST_KEY, newMessages.toString())
                     .apply();
-
-            Log.d(TAG, "PUSH saved locally");
         } catch (Exception e) {
             Log.e(TAG, "Failed to save PUSH locally", e);
         }
