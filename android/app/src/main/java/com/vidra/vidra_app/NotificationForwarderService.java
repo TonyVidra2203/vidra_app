@@ -17,10 +17,17 @@ public class NotificationForwarderService extends NotificationListenerService {
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
     private static final String STORAGE_PREFS = "vidra_native_storage";
+    private static final String FILTERS_PREFS = "vidra_filter_settings";
 
     private static final String KEY_PUSH_FORWARDING = "pushForwarding";
     private static final String KEY_DEVICE_NAME = "deviceName";
     private static final String KEY_DEVICE_ID = "deviceId";
+
+    private static final String KEY_VERIFICATION_CODES = "verificationCodes";
+    private static final String KEY_BANK_MESSAGES = "bankMessages";
+    private static final String KEY_AD_SMS = "adSms";
+    private static final String KEY_CRYPTO_SPAM = "cryptoSpam";
+    private static final String KEY_BLACKLIST = "blacklist";
 
     private static final String PUSH_LIST_KEY = "push_messages";
 
@@ -68,6 +75,11 @@ public class NotificationForwarderService extends NotificationListenerService {
                 return;
             }
 
+            if (!isAllowedByFilters(appName, packageName, title, text)) {
+                Log.d(TAG, "PUSH skipped by filters");
+                return;
+            }
+
             long receivedAt = System.currentTimeMillis();
 
             JSONObject payload = buildPayload(
@@ -96,6 +108,122 @@ public class NotificationForwarderService extends NotificationListenerService {
         );
 
         return prefs.getBoolean(KEY_PUSH_FORWARDING, true);
+    }
+
+    private boolean isAllowedByFilters(
+            String appName,
+            String packageName,
+            String title,
+            String text
+    ) {
+        SharedPreferences filters = getSharedPreferences(
+                FILTERS_PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        String combined = (
+                safeString(appName) + " " +
+                        safeString(packageName) + " " +
+                        safeString(title) + " " +
+                        safeString(text)
+        ).toLowerCase().trim();
+
+        if (!filters.getBoolean(KEY_BLACKLIST, true) && isBlacklisted(combined)) {
+            return false;
+        }
+
+        if (!filters.getBoolean(KEY_VERIFICATION_CODES, true) && isVerificationCode(combined)) {
+            return false;
+        }
+
+        if (!filters.getBoolean(KEY_BANK_MESSAGES, true) && isBankMessage(combined)) {
+            return false;
+        }
+
+        if (!filters.getBoolean(KEY_AD_SMS, false) && isAdPush(combined)) {
+            return false;
+        }
+
+        if (!filters.getBoolean(KEY_CRYPTO_SPAM, false) && isCryptoSpam(combined)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private boolean isVerificationCode(String text) {
+        return text.contains("код")
+                || text.contains("code")
+                || text.contains("otp")
+                || text.contains("пароль")
+                || text.contains("password")
+                || text.contains("verification")
+                || text.contains("подтверждения")
+                || text.matches(".*\\b\\d{4,8}\\b.*");
+    }
+
+    private boolean isBankMessage(String text) {
+        return text.contains("bank")
+                || text.contains("банк")
+                || text.contains("sber")
+                || text.contains("сбер")
+                || text.contains("tinkoff")
+                || text.contains("тинькофф")
+                || text.contains("alfabank")
+                || text.contains("альфа")
+                || text.contains("vtb")
+                || text.contains("втб")
+                || text.contains("mir")
+                || text.contains("мир")
+                || text.contains("card")
+                || text.contains("карта")
+                || text.contains("balance")
+                || text.contains("баланс")
+                || text.contains("покупка")
+                || text.contains("списание")
+                || text.contains("зачисление");
+    }
+
+    private boolean isAdPush(String text) {
+        return text.contains("скидка")
+                || text.contains("sale")
+                || text.contains("акция")
+                || text.contains("promo")
+                || text.contains("промо")
+                || text.contains("discount")
+                || text.contains("bonus")
+                || text.contains("бонус")
+                || text.contains("offer")
+                || text.contains("реклама")
+                || text.contains("unsubscribe")
+                || text.contains("отпис");
+    }
+
+    private boolean isCryptoSpam(String text) {
+        return text.contains("crypto")
+                || text.contains("bitcoin")
+                || text.contains("btc")
+                || text.contains("usdt")
+                || text.contains("binance")
+                || text.contains("bybit")
+                || text.contains("airdrop")
+                || text.contains("wallet")
+                || text.contains("blockchain")
+                || text.contains("крипто")
+                || text.contains("биткоин");
+    }
+
+    private boolean isBlacklisted(String text) {
+        return text.contains("casino")
+                || text.contains("казино")
+                || text.contains("1xbet")
+                || text.contains("stavka")
+                || text.contains("ставка")
+                || text.contains("bet")
+                || text.contains("loan")
+                || text.contains("займ")
+                || text.contains("кредит")
+                || text.contains("микрозайм");
     }
 
     private JSONObject buildPayload(

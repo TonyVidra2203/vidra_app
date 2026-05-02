@@ -62,6 +62,21 @@ class NativeMainPhoneService {
     }
   }
 
+  Future<MainPhoneFilterSettings> getFilterSettings() async {
+    try {
+      final value = await _channel.invokeMethod<String>('getFilterSettings');
+      final map = jsonDecode(value ?? '{}') as Map<String, dynamic>;
+
+      return MainPhoneFilterSettings.fromJson(map);
+    } catch (_) {
+      return const MainPhoneFilterSettings();
+    }
+  }
+
+  Future<void> saveFilterSettings(MainPhoneFilterSettings settings) async {
+    await _channel.invokeMethod('saveFilterSettings', settings.toJson());
+  }
+
   Future<List<NativeForwardedMessage>> getMessages() async {
     try {
       final value = await _channel.invokeMethod<String>('getNativeMessages');
@@ -121,6 +136,64 @@ class NativeMainPhoneService {
     }
 
     return uniqueMessages;
+  }
+}
+
+class MainPhoneFilterSettings {
+  final bool verificationCodes;
+  final bool bankMessages;
+  final bool adSms;
+  final bool internationalNumbers;
+  final bool cryptoSpam;
+  final bool blacklist;
+
+  const MainPhoneFilterSettings({
+    this.verificationCodes = true,
+    this.bankMessages = true,
+    this.adSms = false,
+    this.internationalNumbers = true,
+    this.cryptoSpam = false,
+    this.blacklist = true,
+  });
+
+  factory MainPhoneFilterSettings.fromJson(Map<String, dynamic> json) {
+    return MainPhoneFilterSettings(
+      verificationCodes: json['verificationCodes'] != false,
+      bankMessages: json['bankMessages'] != false,
+      adSms: json['adSms'] == true,
+      internationalNumbers: json['internationalNumbers'] != false,
+      cryptoSpam: json['cryptoSpam'] == true,
+      blacklist: json['blacklist'] != false,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'verificationCodes': verificationCodes,
+      'bankMessages': bankMessages,
+      'adSms': adSms,
+      'internationalNumbers': internationalNumbers,
+      'cryptoSpam': cryptoSpam,
+      'blacklist': blacklist,
+    };
+  }
+
+  MainPhoneFilterSettings copyWith({
+    bool? verificationCodes,
+    bool? bankMessages,
+    bool? adSms,
+    bool? internationalNumbers,
+    bool? cryptoSpam,
+    bool? blacklist,
+  }) {
+    return MainPhoneFilterSettings(
+      verificationCodes: verificationCodes ?? this.verificationCodes,
+      bankMessages: bankMessages ?? this.bankMessages,
+      adSms: adSms ?? this.adSms,
+      internationalNumbers: internationalNumbers ?? this.internationalNumbers,
+      cryptoSpam: cryptoSpam ?? this.cryptoSpam,
+      blacklist: blacklist ?? this.blacklist,
+    );
   }
 }
 

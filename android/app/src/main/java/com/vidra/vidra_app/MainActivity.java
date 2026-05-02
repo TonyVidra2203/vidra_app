@@ -36,6 +36,7 @@ public class MainActivity extends FlutterActivity {
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
     private static final String STORAGE_PREFS = "vidra_native_storage";
+    private static final String FILTERS_PREFS = "vidra_filter_settings";
 
     private static final String KEY_SMS_FORWARDING = "smsForwarding";
     private static final String KEY_PUSH_FORWARDING = "pushForwarding";
@@ -45,6 +46,13 @@ public class MainActivity extends FlutterActivity {
     private static final String KEY_DEVICE_ID = "deviceId";
     private static final String KEY_RELAY_URL = "relayUrl";
     private static final String KEY_RELAY_API_KEY = "relayApiKey";
+
+    private static final String KEY_VERIFICATION_CODES = "verificationCodes";
+    private static final String KEY_BANK_MESSAGES = "bankMessages";
+    private static final String KEY_AD_SMS = "adSms";
+    private static final String KEY_INTERNATIONAL_NUMBERS = "internationalNumbers";
+    private static final String KEY_CRYPTO_SPAM = "cryptoSpam";
+    private static final String KEY_BLACKLIST = "blacklist";
 
     private static final String SMS_LIST_KEY = "sms_messages";
     private static final String PUSH_LIST_KEY = "push_messages";
@@ -127,6 +135,22 @@ public class MainActivity extends FlutterActivity {
                             call.argument(KEY_RELAY_API_KEY)
                     );
                     result.success(null);
+                    break;
+
+                case "saveFilterSettings":
+                    saveFilterSettings(
+                            call.argument(KEY_VERIFICATION_CODES),
+                            call.argument(KEY_BANK_MESSAGES),
+                            call.argument(KEY_AD_SMS),
+                            call.argument(KEY_INTERNATIONAL_NUMBERS),
+                            call.argument(KEY_CRYPTO_SPAM),
+                            call.argument(KEY_BLACKLIST)
+                    );
+                    result.success(null);
+                    break;
+
+                case "getFilterSettings":
+                    result.success(getFilterSettings().toString());
                     break;
 
                 case "getMainPhoneStatus":
@@ -365,6 +389,44 @@ public class MainActivity extends FlutterActivity {
                 .putString(KEY_RELAY_URL, cleanOrDefault(relayUrl, ""))
                 .putString(KEY_RELAY_API_KEY, cleanOrDefault(relayApiKey, ""))
                 .apply();
+    }
+
+    private void saveFilterSettings(
+            Boolean verificationCodes,
+            Boolean bankMessages,
+            Boolean adSms,
+            Boolean internationalNumbers,
+            Boolean cryptoSpam,
+            Boolean blacklist
+    ) {
+        SharedPreferences prefs = getSharedPreferences(FILTERS_PREFS, Context.MODE_PRIVATE);
+
+        prefs.edit()
+                .putBoolean(KEY_VERIFICATION_CODES, verificationCodes != null ? verificationCodes : true)
+                .putBoolean(KEY_BANK_MESSAGES, bankMessages != null ? bankMessages : true)
+                .putBoolean(KEY_AD_SMS, adSms != null && adSms)
+                .putBoolean(KEY_INTERNATIONAL_NUMBERS, internationalNumbers != null ? internationalNumbers : true)
+                .putBoolean(KEY_CRYPTO_SPAM, cryptoSpam != null && cryptoSpam)
+                .putBoolean(KEY_BLACKLIST, blacklist != null ? blacklist : true)
+                .apply();
+    }
+
+    private JSONObject getFilterSettings() {
+        JSONObject filters = new JSONObject();
+
+        try {
+            SharedPreferences prefs = getSharedPreferences(FILTERS_PREFS, Context.MODE_PRIVATE);
+
+            filters.put(KEY_VERIFICATION_CODES, prefs.getBoolean(KEY_VERIFICATION_CODES, true));
+            filters.put(KEY_BANK_MESSAGES, prefs.getBoolean(KEY_BANK_MESSAGES, true));
+            filters.put(KEY_AD_SMS, prefs.getBoolean(KEY_AD_SMS, false));
+            filters.put(KEY_INTERNATIONAL_NUMBERS, prefs.getBoolean(KEY_INTERNATIONAL_NUMBERS, true));
+            filters.put(KEY_CRYPTO_SPAM, prefs.getBoolean(KEY_CRYPTO_SPAM, false));
+            filters.put(KEY_BLACKLIST, prefs.getBoolean(KEY_BLACKLIST, true));
+        } catch (Exception ignored) {
+        }
+
+        return filters;
     }
 
     private JSONObject getMainPhoneStatus() {

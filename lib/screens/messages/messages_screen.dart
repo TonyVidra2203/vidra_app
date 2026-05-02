@@ -1,12 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_colors.dart';
-import '../../navigation/app_routes.dart';
-import '../../services/messages_mock_data.dart';
-import '../../widgets/common/app_bottom_nav_bar.dart';
-import '../../widgets/messages/message_list.dart';
-import '../../widgets/messages/message_filter_bar.dart';
 import '../../models/message_filter_model.dart';
 import '../../models/message_model.dart';
+import '../../navigation/app_routes.dart';
+import '../../services/native_main_phone_service.dart';
+import '../../widgets/common/app_bottom_nav_bar.dart';
+import '../../widgets/messages/message_filter_bar.dart';
+import '../../widgets/messages/message_list.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
@@ -15,39 +18,142 @@ class MessagesScreen extends StatefulWidget {
   State<MessagesScreen> createState() => _MessagesScreenState();
 }
 
-class _MessagesScreenState extends State<MessagesScreen> {
+class _MessagesScreenState extends State<MessagesScreen>
+    with WidgetsBindingObserver {
+  final NativeMainPhoneService nativeService = const NativeMainPhoneService();
+
+  StreamSubscription<void>? messageUpdatesSubscription;
+
   MessageFilter selectedFilter = MessageFilter.all;
   bool isSearchOpen = false;
+  bool isLoading = true;
+  bool isRefreshing = false;
   String searchQuery = '';
 
+  List<MessageModel> messages = [];
+
   List<MessageModel> get filteredMessages {
-    List<MessageModel> messages = MessagesMockData.messages;
+    List<MessageModel> result = List.from(messages);
 
     switch (selectedFilter) {
       case MessageFilter.sms:
-        messages = messages.where((m) => m.type == MessageType.sms).toList();
+        result = result.where((m) => m.type == MessageType.sms).toList();
         break;
       case MessageFilter.push:
-        messages = messages.where((m) => m.type == MessageType.push).toList();
+        result = result.where((m) => m.type == MessageType.push).toList();
         break;
       case MessageFilter.errors:
-        messages = messages.where((m) => m.status == MessageStatus.error).toList();
+        result = result.where((m) => m.status == MessageStatus.error).toList();
         break;
       case MessageFilter.all:
         break;
     }
 
-    if (searchQuery.trim().isNotEmpty) {
-      final query = searchQuery.toLowerCase().trim();
+    final query = searchQuery.toLowerCase().trim();
 
-      messages = messages.where((m) {
+    if (query.isNotEmpty) {
+      result = result.where((m) {
         return m.sender.toLowerCase().contains(query) ||
             m.text.toLowerCase().contains(query) ||
             m.deviceName.toLowerCase().contains(query);
       }).toList();
     }
 
-    return messages;
+    return result;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    _loadMessages();
+    _listenMessageUpdates();
+  }
+
+  @override
+  void dispose() {
+    messageUpdatesSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadMessages();
+      _listenMessageUpdates();
+    }
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      messageUpdatesSubscription?.cancel();
+      messageUpdatesSubscription = null;
+    }
+  }
+
+  void _listenMessageUpdates() {
+    messageUpdatesSubscription?.cancel();
+
+    messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
+      _loadMessages();
+    });
+  }
+
+  Future<void> _loadMessages() async {
+    if (isRefreshing) {
+      return;
+    }
+
+    isRefreshing = true;
+
+    final nativeMessages = await nativeService.getMessages();
+
+    if (!mounted) {
+      isRefreshing = false;
+      return;
+    }
+
+    setState(() {
+      messages = nativeMessages.map(_mapNativeMessage).toList();
+      isLoading = false;
+    });
+
+    isRefreshing = false;
+  }
+
+  MessageModel _mapNativeMessage(NativeForwardedMessage message) {
+    final date = DateTime.fromMillisecondsSinceEpoch(message.receivedAt);
+
+    return MessageModel(
+      sender: message.displayTitle,
+      text: message.displaySubtitle,
+      deviceName: message.deviceName.isEmpty ? 'Главный телефон' : message.deviceName,
+      time: _formatTime(date),
+      type: message.isSms ? MessageType.sms : MessageType.push,
+      status: _mapStatus(message.status),
+      date: date,
+    );
+  }
+
+  MessageStatus _mapStatus(String status) {
+    switch (status.toLowerCase().trim()) {
+      case 'sent':
+        return MessageStatus.sent;
+      case 'error':
+        return MessageStatus.error;
+      case 'received':
+      default:
+        return MessageStatus.received;
+    }
+  }
+
+  String _formatTime(DateTime date) {
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+
+    return '$hour:$minute';
   }
 
   void toggleSearch() {
@@ -60,6 +166,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
     });
   }
 
+  Future<void> _clearMessages() async {
+    await nativeService.clearMessages();
+    await _loadMessages();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -70,14 +181,15 @@ class _MessagesScreenState extends State<MessagesScreen> {
             _Header(
               isSearchOpen: isSearchOpen,
               searchQuery: searchQuery,
+              hasMessages: messages.isNotEmpty,
               onSearchTap: toggleSearch,
+              onClearTap: _clearMessages,
               onSearchChanged: (value) {
                 setState(() {
                   searchQuery = value;
                 });
               },
             ),
-
             MessageFilterBar(
               selectedFilter: selectedFilter,
               onChanged: (filter) {
@@ -86,9 +198,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 });
               },
             ),
-
             Expanded(
-              child: MessageList(messages: filteredMessages),
+              child: isLoading
+                  ? const Center(
+                child: CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
+              )
+                  : MessageList(messages: filteredMessages),
             ),
           ],
         ),
@@ -102,14 +219,18 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
 class _Header extends StatelessWidget {
   final bool isSearchOpen;
+  final bool hasMessages;
   final String searchQuery;
   final VoidCallback onSearchTap;
+  final VoidCallback onClearTap;
   final ValueChanged<String> onSearchChanged;
 
   const _Header({
     required this.isSearchOpen,
+    required this.hasMessages,
     required this.searchQuery,
     required this.onSearchTap,
+    required this.onClearTap,
     required this.onSearchChanged,
   });
 
@@ -123,6 +244,10 @@ class _Header extends StatelessWidget {
             Expanded(
               child: TextField(
                 autofocus: true,
+                controller: TextEditingController(text: searchQuery)
+                  ..selection = TextSelection.collapsed(
+                    offset: searchQuery.length,
+                  ),
                 onChanged: onSearchChanged,
                 style: const TextStyle(color: AppColors.textPrimary),
                 decoration: InputDecoration(
@@ -167,7 +292,11 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
       child: Row(
         children: [
-          const Icon(Icons.menu, color: AppColors.primary, size: 32),
+          const Icon(
+            Icons.message_outlined,
+            color: AppColors.primary,
+            size: 32,
+          ),
           const SizedBox(width: 18),
           const Expanded(
             child: Text(
@@ -179,6 +308,16 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
+          if (hasMessages)
+            GestureDetector(
+              onTap: onClearTap,
+              child: const Icon(
+                Icons.delete_outline,
+                color: AppColors.danger,
+                size: 27,
+              ),
+            ),
+          if (hasMessages) const SizedBox(width: 16),
           GestureDetector(
             onTap: onSearchTap,
             child: const Icon(
