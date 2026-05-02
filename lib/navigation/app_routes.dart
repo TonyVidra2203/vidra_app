@@ -1,4 +1,5 @@
 class AppRoutes {
+  static const splash = '/splash';
   static const modeSelection = '/mode-selection';
   static const dashboard = '/';
   static const messages = '/messages';

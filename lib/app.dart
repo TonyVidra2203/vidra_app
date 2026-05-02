@@ -7,6 +7,7 @@ import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/filters/filters_screen.dart';
 import 'screens/messages/messages_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/splash/splash_screen.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
@@ -17,8 +18,9 @@ class App extends StatelessWidget {
       title: 'VidRA',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      initialRoute: AppRoutes.modeSelection,
+      initialRoute: AppRoutes.splash,
       routes: {
+        AppRoutes.splash: (context) => const SplashScreen(),
         AppRoutes.modeSelection: (context) => const ModeSelectionScreen(),
         AppRoutes.dashboard: (context) => const DashboardScreen(),
         AppRoutes.messages: (context) => const MessagesScreen(),
