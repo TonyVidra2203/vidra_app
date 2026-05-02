@@ -1,8 +1,10 @@
 package com.vidra.vidra_app;
 
+import android.app.Notification;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -26,7 +28,7 @@ public class NotificationForwarderService extends NotificationListenerService {
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-        if (sbn == null || sbn.getNotification() == null) {
+        if (sbn == null) {
             return;
         }
 
@@ -36,15 +38,31 @@ public class NotificationForwarderService extends NotificationListenerService {
         }
 
         try {
-            String packageName = sbn.getPackageName();
+            Notification notification = sbn.getNotification();
 
-            if (packageName == null || packageName.equals(getPackageName())) {
+            if (notification == null) {
                 return;
             }
 
+            Bundle extras = notification.extras;
+
+            String packageName = safeString(sbn.getPackageName());
             String appName = getAppName(packageName);
-            String title = extractNotificationTitle(sbn);
-            String text = extractNotificationText(sbn);
+            String title = "";
+            String text = "";
+
+            if (extras != null) {
+                title = charSequenceToString(extras.getCharSequence(Notification.EXTRA_TITLE));
+                text = charSequenceToString(extras.getCharSequence(Notification.EXTRA_TEXT));
+
+                if (text.isEmpty()) {
+                    text = charSequenceToString(extras.getCharSequence(Notification.EXTRA_BIG_TEXT));
+                }
+            }
+
+            if (packageName.equals(getPackageName())) {
+                return;
+            }
 
             if (title.trim().isEmpty() && text.trim().isEmpty()) {
                 return;
@@ -61,6 +79,8 @@ public class NotificationForwarderService extends NotificationListenerService {
             );
 
             savePushLocally(payload);
+            MainActivity.notifyMessagesUpdated(this);
+
             NetworkClient.sendEvent(this, payload);
 
             Log.d(TAG, "Incoming PUSH captured and processed");
@@ -78,80 +98,6 @@ public class NotificationForwarderService extends NotificationListenerService {
         return prefs.getBoolean(KEY_PUSH_FORWARDING, true);
     }
 
-    private String getDeviceName() {
-        SharedPreferences prefs = getSharedPreferences(
-                SETTINGS_PREFS,
-                Context.MODE_PRIVATE
-        );
-
-        String savedName = prefs.getString(KEY_DEVICE_NAME, null);
-
-        if (savedName != null && !savedName.trim().isEmpty()) {
-            return savedName.trim();
-        }
-
-        return Build.MANUFACTURER + " " + Build.MODEL;
-    }
-
-    private String getSavedVidraDeviceId() {
-        SharedPreferences prefs = getSharedPreferences(
-                SETTINGS_PREFS,
-                Context.MODE_PRIVATE
-        );
-
-        String savedId = prefs.getString(KEY_DEVICE_ID, null);
-
-        if (savedId != null && !savedId.trim().isEmpty()) {
-            return savedId.trim();
-        }
-
-        return "";
-    }
-
-    private String getAppName(String packageName) {
-        try {
-            return getPackageManager()
-                    .getApplicationLabel(
-                            getPackageManager().getApplicationInfo(packageName, 0)
-                    )
-                    .toString();
-        } catch (Exception e) {
-            return packageName;
-        }
-    }
-
-    private String extractNotificationTitle(StatusBarNotification sbn) {
-        try {
-            CharSequence title = sbn.getNotification()
-                    .extras
-                    .getCharSequence("android.title");
-
-            return title == null ? "" : title.toString();
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private String extractNotificationText(StatusBarNotification sbn) {
-        try {
-            CharSequence bigText = sbn.getNotification()
-                    .extras
-                    .getCharSequence("android.bigText");
-
-            if (bigText != null) {
-                return bigText.toString();
-            }
-
-            CharSequence text = sbn.getNotification()
-                    .extras
-                    .getCharSequence("android.text");
-
-            return text == null ? "" : text.toString();
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
     private JSONObject buildPayload(
             String packageName,
             String appName,
@@ -162,6 +108,18 @@ public class NotificationForwarderService extends NotificationListenerService {
         JSONObject payload = new JSONObject();
 
         try {
+            SharedPreferences prefs = getSharedPreferences(
+                    SETTINGS_PREFS,
+                    Context.MODE_PRIVATE
+            );
+
+            String deviceName = prefs.getString(
+                    KEY_DEVICE_NAME,
+                    Build.MANUFACTURER + " " + Build.MODEL
+            );
+
+            String deviceId = prefs.getString(KEY_DEVICE_ID, "");
+
             payload.put("id", "push_" + receivedAt);
             payload.put("type", "push");
             payload.put("sender", appName);
@@ -169,8 +127,8 @@ public class NotificationForwarderService extends NotificationListenerService {
             payload.put("packageName", packageName);
             payload.put("title", title);
             payload.put("text", text);
-            payload.put("deviceName", getDeviceName());
-            payload.put("deviceId", getSavedVidraDeviceId());
+            payload.put("deviceName", deviceName == null ? "" : deviceName);
+            payload.put("deviceId", deviceId == null ? "" : deviceId);
             payload.put("status", "received");
             payload.put("receivedAt", receivedAt);
         } catch (Exception e) {
@@ -188,6 +146,7 @@ public class NotificationForwarderService extends NotificationListenerService {
             );
 
             String currentJson = prefs.getString(PUSH_LIST_KEY, "[]");
+
             JSONArray oldMessages = new JSONArray(currentJson);
             JSONArray newMessages = new JSONArray();
 
@@ -205,5 +164,30 @@ public class NotificationForwarderService extends NotificationListenerService {
         } catch (Exception e) {
             Log.e(TAG, "Failed to save PUSH locally", e);
         }
+    }
+
+    private String getAppName(String packageName) {
+        if (packageName == null || packageName.trim().isEmpty()) {
+            return "";
+        }
+
+        try {
+            CharSequence label = getPackageManager()
+                    .getApplicationLabel(
+                            getPackageManager().getApplicationInfo(packageName, 0)
+                    );
+
+            return label == null ? packageName : label.toString();
+        } catch (Exception e) {
+            return packageName;
+        }
+    }
+
+    private String charSequenceToString(CharSequence value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private String safeString(String value) {
+        return value == null ? "" : value;
     }
 }

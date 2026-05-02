@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
@@ -17,10 +19,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
+  StreamSubscription<void>? messageUpdatesSubscription;
+
   MainPhoneNativeStatus status = const MainPhoneNativeStatus();
-  List<NativeForwardedMessage> messages = <NativeForwardedMessage>[];
+  List<NativeForwardedMessage> messages = [];
 
   bool isLoading = true;
+  bool isRefreshing = false;
 
   bool get smsReady => status.smsPermission && status.smsForwarding;
 
@@ -36,11 +41,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
     _loadData();
+    _listenMessageUpdates();
   }
 
   @override
   void dispose() {
+    messageUpdatesSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -49,14 +57,37 @@ class _DashboardScreenState extends State<DashboardScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _loadData();
+      _listenMessageUpdates();
+    }
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      messageUpdatesSubscription?.cancel();
+      messageUpdatesSubscription = null;
     }
   }
 
-  Future<void> _loadData() async {
+  void _listenMessageUpdates() {
+    messageUpdatesSubscription?.cancel();
+
+    messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
+      _loadData(silent: true);
+    });
+  }
+
+  Future<void> _loadData({bool silent = false}) async {
+    if (isRefreshing) {
+      return;
+    }
+
+    isRefreshing = true;
+
     final loadedStatus = await nativeService.getStatus();
     final loadedMessages = await nativeService.getMessages();
 
     if (!mounted) {
+      isRefreshing = false;
       return;
     }
 
@@ -65,6 +96,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       messages = loadedMessages;
       isLoading = false;
     });
+
+    isRefreshing = false;
   }
 
   String _statusTitle() {
@@ -118,42 +151,31 @@ class _DashboardScreenState extends State<DashboardScreen>
                   color: AppColors.primary,
                 ),
               )
-                  : RefreshIndicator(
-                onRefresh: _loadData,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    _MainStatusCard(
-                      title: _statusTitle(),
-                      subtitle: _statusSubtitle(),
-                      color: _statusColor(),
-                      isReady: isReady,
-                    ),
-                    const SizedBox(height: 16),
-                    _CountersCard(
-                      smsCount: status.smsCount,
-                      pushCount: status.pushCount,
-                      totalCount: status.totalCount,
-                    ),
-                    const SizedBox(height: 16),
-                    _SystemStatusCard(
-                      smsReady: smsReady,
-                      pushReady: pushReady,
-                      backgroundReady: backgroundReady,
-                      relayReady: relayReady,
-                    ),
-                    const SizedBox(height: 16),
-                    _LastEventsCard(messages: messages),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      height: 46,
-                      child: OutlinedButton(
-                        onPressed: _loadData,
-                        child: const Text('Обновить'),
-                      ),
-                    ),
-                  ],
-                ),
+                  : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _MainStatusCard(
+                    title: _statusTitle(),
+                    subtitle: _statusSubtitle(),
+                    color: _statusColor(),
+                    isReady: isReady,
+                  ),
+                  const SizedBox(height: 16),
+                  _CountersCard(
+                    smsCount: status.smsCount,
+                    pushCount: status.pushCount,
+                    totalCount: status.totalCount,
+                  ),
+                  const SizedBox(height: 16),
+                  _SystemStatusCard(
+                    smsReady: smsReady,
+                    pushReady: pushReady,
+                    backgroundReady: backgroundReady,
+                    relayReady: relayReady,
+                  ),
+                  const SizedBox(height: 16),
+                  _LastEventsCard(messages: messages),
+                ],
               ),
             ),
             const AppBottomNavBar(
@@ -205,7 +227,7 @@ class _Header extends StatelessWidget {
             ),
           ),
           Icon(
-            Icons.sync,
+            Icons.bolt_rounded,
             color: AppColors.primary,
             size: 30,
           ),
@@ -486,7 +508,7 @@ class _LastEventsCard extends StatelessWidget {
           const SizedBox(height: 12),
           if (messages.isEmpty)
             const Text(
-              'Пока нет входящих SMS или PUSH. Когда Android поймает событие, оно появится здесь.',
+              'Пока нет входящих SMS или PUSH.\nКогда Android поймает событие, оно появится здесь автоматически.',
               style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 13,

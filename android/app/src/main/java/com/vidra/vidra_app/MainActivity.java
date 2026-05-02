@@ -1,8 +1,10 @@
 package com.vidra.vidra_app;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -20,10 +22,17 @@ import org.json.JSONObject;
 
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
+import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodChannel;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "vidra/android_permissions";
+    private static final String EVENTS_CHANNEL = "vidra/native_events";
+
+    private static final String ACTION_MESSAGES_UPDATED =
+            "com.vidra.vidra_app.MESSAGES_UPDATED";
+
+    private static final String EVENT_MESSAGES_UPDATED = "messagesUpdated";
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
     private static final String STORAGE_PREFS = "vidra_native_storage";
@@ -42,6 +51,19 @@ public class MainActivity extends FlutterActivity {
 
     private static final int SMS_PERMISSION_REQUEST = 2203;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 2204;
+
+    private EventChannel.EventSink eventSink;
+    private BroadcastReceiver nativeEventsReceiver;
+
+    public static void notifyMessagesUpdated(Context context) {
+        if (context == null) {
+            return;
+        }
+
+        Intent intent = new Intent(ACTION_MESSAGES_UPDATED);
+        intent.setPackage(context.getPackageName());
+        context.sendBroadcast(intent);
+    }
 
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
@@ -117,12 +139,89 @@ public class MainActivity extends FlutterActivity {
 
                 case "clearNativeMessages":
                     clearNativeMessages();
+                    notifyMessagesUpdated(this);
                     result.success(null);
                     break;
 
                 default:
                     result.notImplemented();
                     break;
+            }
+        });
+
+        new EventChannel(
+                flutterEngine.getDartExecutor().getBinaryMessenger(),
+                EVENTS_CHANNEL
+        ).setStreamHandler(new EventChannel.StreamHandler() {
+            @Override
+            public void onListen(Object arguments, EventChannel.EventSink events) {
+                eventSink = events;
+            }
+
+            @Override
+            public void onCancel(Object arguments) {
+                eventSink = null;
+            }
+        });
+
+        registerNativeEventsReceiver();
+    }
+
+    @Override
+    protected void onDestroy() {
+        unregisterNativeEventsReceiver();
+        super.onDestroy();
+    }
+
+    private void registerNativeEventsReceiver() {
+        if (nativeEventsReceiver != null) {
+            return;
+        }
+
+        nativeEventsReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null) {
+                    return;
+                }
+
+                if (ACTION_MESSAGES_UPDATED.equals(intent.getAction())) {
+                    sendNativeEvent(EVENT_MESSAGES_UPDATED);
+                }
+            }
+        };
+
+        IntentFilter filter = new IntentFilter(ACTION_MESSAGES_UPDATED);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(nativeEventsReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(nativeEventsReceiver, filter);
+        }
+    }
+
+    private void unregisterNativeEventsReceiver() {
+        if (nativeEventsReceiver == null) {
+            return;
+        }
+
+        try {
+            unregisterReceiver(nativeEventsReceiver);
+        } catch (Exception ignored) {
+        }
+
+        nativeEventsReceiver = null;
+    }
+
+    private void sendNativeEvent(String event) {
+        if (eventSink == null) {
+            return;
+        }
+
+        runOnUiThread(() -> {
+            try {
+                eventSink.success(event);
+            } catch (Exception ignored) {
             }
         });
     }
@@ -302,6 +401,7 @@ public class MainActivity extends FlutterActivity {
 
         try {
             SharedPreferences storage = getSharedPreferences(STORAGE_PREFS, Context.MODE_PRIVATE);
+
             JSONArray smsMessages = new JSONArray(storage.getString(SMS_LIST_KEY, "[]"));
             JSONArray pushMessages = new JSONArray(storage.getString(PUSH_LIST_KEY, "[]"));
 

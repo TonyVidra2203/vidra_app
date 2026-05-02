@@ -1,11 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
 class NativeMainPhoneService {
   static const MethodChannel _channel = MethodChannel('vidra/android_permissions');
+  static const EventChannel _eventsChannel = EventChannel('vidra/native_events');
 
   const NativeMainPhoneService();
+
+  Stream<void> get messageUpdates {
+    return _eventsChannel.receiveBroadcastStream().where((event) {
+      return event == 'messagesUpdated';
+    }).map((_) => null);
+  }
 
   Future<bool> requestSmsPermissions() async {
     return _invokeBool('requestSmsPermissions');
@@ -28,7 +36,7 @@ class NativeMainPhoneService {
   }
 
   Future<void> openNotificationListenerSettings() async {
-    await _channel.invokeMethod<void>('openNotificationListenerSettings');
+    await _channel.invokeMethod('openNotificationListenerSettings');
   }
 
   Future<bool> isBatteryOptimizationDisabled() async {
@@ -36,11 +44,11 @@ class NativeMainPhoneService {
   }
 
   Future<void> openBatteryOptimizationSettings() async {
-    await _channel.invokeMethod<void>('openBatteryOptimizationSettings');
+    await _channel.invokeMethod('openBatteryOptimizationSettings');
   }
 
   Future<void> openAppSettings() async {
-    await _channel.invokeMethod<void>('openAppSettings');
+    await _channel.invokeMethod('openAppSettings');
   }
 
   Future<MainPhoneNativeStatus> getStatus() async {
@@ -57,23 +65,34 @@ class NativeMainPhoneService {
   Future<List<NativeForwardedMessage>> getMessages() async {
     try {
       final value = await _channel.invokeMethod<String>('getNativeMessages');
-      final list = jsonDecode(value ?? '[]') as List<dynamic>;
+      final list = jsonDecode(value ?? '[]') as List;
 
       final messages = list
-          .whereType<Map<String, dynamic>>()
-          .map(NativeForwardedMessage.fromJson)
+          .whereType<Map>()
+          .map((item) {
+        return NativeForwardedMessage.fromJson(
+          Map<String, dynamic>.from(item),
+        );
+      })
+          .where((message) {
+        return message.type.isNotEmpty &&
+            (message.text.isNotEmpty ||
+                message.title.isNotEmpty ||
+                message.sender.isNotEmpty ||
+                message.app.isNotEmpty);
+      })
           .toList();
 
       messages.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
 
-      return messages;
+      return _removeDuplicates(messages);
     } catch (_) {
-      return <NativeForwardedMessage>[];
+      return [];
     }
   }
 
   Future<void> clearMessages() async {
-    await _channel.invokeMethod<void>('clearNativeMessages');
+    await _channel.invokeMethod('clearNativeMessages');
   }
 
   Future<bool> _invokeBool(String method) async {
@@ -82,6 +101,26 @@ class NativeMainPhoneService {
     } catch (_) {
       return false;
     }
+  }
+
+  List<NativeForwardedMessage> _removeDuplicates(
+      List<NativeForwardedMessage> messages,
+      ) {
+    final seen = <String>{};
+    final uniqueMessages = <NativeForwardedMessage>[];
+
+    for (final message in messages) {
+      final key = message.dedupeKey;
+
+      if (seen.contains(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      uniqueMessages.add(message);
+    }
+
+    return uniqueMessages;
   }
 }
 
@@ -140,8 +179,9 @@ class MainPhoneNativeStatus {
 
   bool get isReadyForPush => notificationListener && pushForwarding;
 
-  bool get isFullyReady =>
-      isReadyForSms && isReadyForPush && batteryOptimizationDisabled;
+  bool get isFullyReady {
+    return isReadyForSms && isReadyForPush && batteryOptimizationDisabled;
+  }
 
   static int _toInt(Object? value) {
     if (value is int) {
@@ -229,5 +269,16 @@ class NativeForwardedMessage {
     }
 
     return packageName;
+  }
+
+  String get dedupeKey {
+    return [
+      type.trim().toLowerCase(),
+      sender.trim().toLowerCase(),
+      app.trim().toLowerCase(),
+      packageName.trim().toLowerCase(),
+      title.trim().toLowerCase(),
+      text.trim().toLowerCase(),
+    ].join('|');
   }
 }

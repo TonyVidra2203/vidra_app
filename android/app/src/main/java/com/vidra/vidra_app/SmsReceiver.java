@@ -77,6 +77,8 @@ public class SmsReceiver extends BroadcastReceiver {
             JSONObject payload = buildPayload(context, sender, body, receivedAt);
 
             saveSmsLocally(context, payload);
+            MainActivity.notifyMessagesUpdated(context);
+
             NetworkClient.sendEvent(context, payload);
 
             Log.d(TAG, "Incoming SMS captured and processed");
@@ -133,6 +135,7 @@ public class SmsReceiver extends BroadcastReceiver {
             );
 
             String currentJson = prefs.getString(SMS_LIST_KEY, "[]");
+
             JSONArray oldMessages = new JSONArray(currentJson);
             JSONArray newMessages = new JSONArray();
 
