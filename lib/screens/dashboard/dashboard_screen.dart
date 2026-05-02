@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../models/device_model.dart';
+import '../../models/event_model.dart';
 import '../../navigation/app_routes.dart';
 import '../../services/native_main_phone_service.dart';
 import '../../widgets/common/app_bottom_nav_bar.dart';
 import '../../widgets/common/app_card.dart';
+import '../../widgets/dashboard/device_list.dart';
+import '../../widgets/dashboard/event_list.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -20,44 +24,39 @@ class _DashboardScreenState extends State<DashboardScreen>
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
   StreamSubscription<void>? messageUpdatesSubscription;
+  Timer? refreshTimer;
 
-  MainPhoneNativeStatus status = const MainPhoneNativeStatus();
-  List<NativeForwardedMessage> messages = [];
-
-  bool isLoading = true;
-  bool isRefreshing = false;
-
-  bool get smsReady => status.smsPermission && status.smsForwarding;
-
-  bool get pushReady => status.notificationListener && status.pushForwarding;
-
-  bool get backgroundReady => status.batteryOptimizationDisabled;
-
-  bool get relayReady => status.relayConfigured;
-
-  bool get isReady => smsReady && pushReady && backgroundReady && relayReady;
+  List<DeviceModel> devices = [];
+  List<EventModel> events = [];
 
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addObserver(this);
 
-    _loadData();
+    _loadDashboardData();
     _listenMessageUpdates();
+    _startAutoRefresh();
   }
 
   @override
   void dispose() {
     messageUpdatesSubscription?.cancel();
+    refreshTimer?.cancel();
+
     WidgetsBinding.instance.removeObserver(this);
+
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _loadData();
+      _loadDashboardData();
       _listenMessageUpdates();
+      _startAutoRefresh();
+      return;
     }
 
     if (state == AppLifecycleState.paused ||
@@ -65,6 +64,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         state == AppLifecycleState.detached) {
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
+
+      refreshTimer?.cancel();
+      refreshTimer = null;
     }
   }
 
@@ -72,68 +74,176 @@ class _DashboardScreenState extends State<DashboardScreen>
     messageUpdatesSubscription?.cancel();
 
     messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
-      _loadData(silent: true);
+      _loadDashboardData();
     });
   }
 
-  Future<void> _loadData({bool silent = false}) async {
-    if (isRefreshing) {
-      return;
-    }
+  void _startAutoRefresh() {
+    refreshTimer?.cancel();
 
-    isRefreshing = true;
+    refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _loadDashboardData();
+    });
+  }
 
-    final loadedStatus = await nativeService.getStatus();
-    final loadedMessages = await nativeService.getMessages();
+  Future<void> _loadDashboardData() async {
+    final messages = await nativeService.getMessages();
 
     if (!mounted) {
-      isRefreshing = false;
       return;
     }
 
     setState(() {
-      status = loadedStatus;
-      messages = loadedMessages;
-      isLoading = false;
+      devices = _buildDeviceList(messages);
+      events = messages.take(5).map(_mapMessageToEvent).toList();
     });
-
-    isRefreshing = false;
   }
 
-  String _statusTitle() {
-    if (isReady) {
-      return 'Главный телефон работает';
+  List<DeviceModel> _buildDeviceList(List<NativeForwardedMessage> messages) {
+    final latestByDevice = <String, NativeForwardedMessage>{};
+
+    for (final message in messages) {
+      final key = _deviceKey(message);
+
+      if (key.isEmpty) {
+        continue;
+      }
+
+      final current = latestByDevice[key];
+
+      if (current == null || message.receivedAt > current.receivedAt) {
+        latestByDevice[key] = message;
+      }
     }
 
-    if (!relayReady) {
-      return 'Не настроен сервер';
-    }
-
-    return 'Нужна настройка Android';
+    return latestByDevice.values.map((message) {
+      return DeviceModel(
+        name: _remoteDeviceName(message),
+        system: _remoteDeviceSystem(message),
+        isOnline: _isRecentlyActive(message.receivedAt),
+        lastSeen: _formatLastSeen(message.receivedAt),
+        battery: '-',
+      );
+    }).toList();
   }
 
-  String _statusSubtitle() {
-    if (isReady) {
-      return 'SMS и PUSH принимаются, сохраняются и готовы к отправке.';
+  String _deviceKey(NativeForwardedMessage message) {
+    if (message.deviceId.trim().isNotEmpty) {
+      return message.deviceId.trim();
     }
 
-    if (!relayReady) {
-      return 'Укажи адрес сервера в настройках, чтобы отправлять события.';
+    if (message.deviceName.trim().isNotEmpty) {
+      return message.deviceName.trim();
     }
 
-    return 'Проверь SMS, доступ к уведомлениям и работу в фоне.';
+    if (_remoteDeviceSystem(message).trim().isNotEmpty) {
+      return _remoteDeviceSystem(message).trim();
+    }
+
+    return '';
   }
 
-  Color _statusColor() {
-    if (isReady) {
-      return AppColors.success;
+  String _remoteDeviceName(NativeForwardedMessage message) {
+    if (message.deviceName.trim().isNotEmpty) {
+      return message.deviceName.trim();
     }
 
-    if (!relayReady) {
-      return AppColors.warning;
+    return 'Рабочий телефон';
+  }
+
+  String _remoteDeviceSystem(NativeForwardedMessage message) {
+    final brand = _cleanPhoneText(message.deviceBrand);
+    final model = _cleanPhoneText(message.deviceModel);
+
+    if (brand.isNotEmpty && model.isNotEmpty) {
+      if (model.toLowerCase().contains(brand.toLowerCase())) {
+        return model;
+      }
+
+      return '$brand $model';
     }
 
-    return AppColors.danger;
+    if (model.isNotEmpty) {
+      return model;
+    }
+
+    if (brand.isNotEmpty) {
+      return brand;
+    }
+
+    if (message.deviceId.trim().isNotEmpty) {
+      return 'ID: ${message.deviceId.trim()}';
+    }
+
+    return 'Подключённый телефон';
+  }
+
+  String _cleanPhoneText(String value) {
+    final text = value.trim();
+
+    if (text.isEmpty) {
+      return '';
+    }
+
+    return text
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .join(' ');
+  }
+
+  bool _isRecentlyActive(int receivedAt) {
+    final date = DateTime.fromMillisecondsSinceEpoch(receivedAt);
+    final difference = DateTime.now().difference(date);
+
+    return difference.inMinutes < 5;
+  }
+
+  EventModel _mapMessageToEvent(NativeForwardedMessage message) {
+    final date = DateTime.fromMillisecondsSinceEpoch(message.receivedAt);
+
+    return EventModel(
+      title: message.isSms
+          ? 'SMS от ${message.displayTitle}'
+          : 'PUSH от ${message.displayTitle}',
+      time: _formatTime(date),
+      type: message.isSms ? EventType.sms : EventType.push,
+    );
+  }
+
+  String _formatTime(DateTime date) {
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    final second = date.second.toString().padLeft(2, '0');
+
+    return '$hour:$minute:$second';
+  }
+
+  String _formatLastSeen(int receivedAt) {
+    final date = DateTime.fromMillisecondsSinceEpoch(receivedAt);
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inSeconds < 10) {
+      return 'Сейчас';
+    }
+
+    if (difference.inMinutes < 1) {
+      return '${difference.inSeconds} сек. назад';
+    }
+
+    if (difference.inHours < 1) {
+      return '${difference.inMinutes} мин. назад';
+    }
+
+    if (difference.inDays < 1) {
+      return '${difference.inHours} ч. назад';
+    }
+
+    return '${date.day.toString().padLeft(2, '0')}.'
+        '${date.month.toString().padLeft(2, '0')}.'
+        '${date.year} '
+        '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -145,37 +255,43 @@ class _DashboardScreenState extends State<DashboardScreen>
           children: [
             const _Header(),
             Expanded(
-              child: isLoading
-                  ? const Center(
-                child: CircularProgressIndicator(
-                  color: AppColors.primary,
-                ),
-              )
-                  : ListView(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
-                children: [
-                  _MainStatusCard(
-                    title: _statusTitle(),
-                    subtitle: _statusSubtitle(),
-                    color: _statusColor(),
-                    isReady: isReady,
-                  ),
-                  const SizedBox(height: 16),
-                  _CountersCard(
-                    smsCount: status.smsCount,
-                    pushCount: status.pushCount,
-                    totalCount: status.totalCount,
-                  ),
-                  const SizedBox(height: 16),
-                  _SystemStatusCard(
-                    smsReady: smsReady,
-                    pushReady: pushReady,
-                    backgroundReady: backgroundReady,
-                    relayReady: relayReady,
-                  ),
-                  const SizedBox(height: 16),
-                  _LastEventsCard(messages: messages),
-                ],
+                child: Column(
+                  children: [
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _CardTitle(
+                            title: 'Устройства',
+                            action: 'Подключённые',
+                          ),
+                          const SizedBox(height: 12),
+                          devices.isEmpty
+                              ? const _EmptyDevices()
+                              : DeviceList(devices: devices),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _CardTitle(
+                            title: 'Последние события',
+                            action: 'Фактические',
+                          ),
+                          const SizedBox(height: 12),
+                          events.isEmpty
+                              ? const _EmptyEvents()
+                              : EventList(events: events),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const AppBottomNavBar(
@@ -198,7 +314,7 @@ class _Header extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            Icons.phone_android,
+            Icons.menu,
             color: AppColors.primary,
             size: 32,
           ),
@@ -217,7 +333,7 @@ class _Header extends StatelessWidget {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'Главный телефон',
+                  'Главный телефон (прием данных)',
                   style: TextStyle(
                     color: AppColors.primary,
                     fontSize: 15,
@@ -227,9 +343,9 @@ class _Header extends StatelessWidget {
             ),
           ),
           Icon(
-            Icons.bolt_rounded,
+            Icons.notifications_none,
             color: AppColors.primary,
-            size: 30,
+            size: 32,
           ),
         ],
       ),
@@ -237,347 +353,115 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _MainStatusCard extends StatelessWidget {
+class _CardTitle extends StatelessWidget {
   final String title;
-  final String subtitle;
-  final Color color;
-  final bool isReady;
+  final String action;
 
-  const _MainStatusCard({
+  const _CardTitle({
     required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.isReady,
+    required this.action,
   });
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: color.withOpacity(0.16),
-            child: Icon(
-              isReady ? Icons.check_circle : Icons.warning_rounded,
-              color: color,
-              size: 30,
-            ),
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CountersCard extends StatelessWidget {
-  final int smsCount;
-  final int pushCount;
-  final int totalCount;
-
-  const _CountersCard({
-    required this.smsCount,
-    required this.pushCount,
-    required this.totalCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Row(
-        children: [
-          _CounterItem(
-            icon: Icons.sms_outlined,
-            title: 'SMS',
-            value: smsCount.toString(),
-          ),
-          _CounterItem(
-            icon: Icons.notifications_none,
-            title: 'PUSH',
-            value: pushCount.toString(),
-          ),
-          _CounterItem(
-            icon: Icons.all_inbox_outlined,
-            title: 'Всего',
-            value: totalCount.toString(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CounterItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String value;
-
-  const _CounterItem({
-    required this.icon,
-    required this.title,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        children: [
-          Icon(
-            icon,
+        ),
+        const Spacer(),
+        Text(
+          action,
+          style: const TextStyle(
             color: AppColors.primary,
-            size: 26,
+            fontSize: 14,
           ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            title,
-            style: const TextStyle(
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyDevices extends StatelessWidget {
+  const _EmptyDevices();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              Icons.phone_android_outlined,
               color: AppColors.textSecondary,
-              fontSize: 12,
+              size: 42,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SystemStatusCard extends StatelessWidget {
-  final bool smsReady;
-  final bool pushReady;
-  final bool backgroundReady;
-  final bool relayReady;
-
-  const _SystemStatusCard({
-    required this.smsReady,
-    required this.pushReady,
-    required this.backgroundReady,
-    required this.relayReady,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Состояние системы',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+            SizedBox(height: 12),
+            Text(
+              'Подключённых устройств нет',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          _StatusRow(
-            title: 'SMS-приёмник',
-            subtitle: smsReady ? 'Работает' : 'Нет разрешения или выключен',
-            isReady: smsReady,
-          ),
-          _StatusRow(
-            title: 'PUSH-приёмник',
-            subtitle: pushReady ? 'Работает' : 'Нет доступа к уведомлениям',
-            isReady: pushReady,
-          ),
-          _StatusRow(
-            title: 'Фоновая работа',
-            subtitle: backgroundReady
-                ? 'Android не должен останавливать приложение'
-                : 'Может быть остановлено системой',
-            isReady: backgroundReady,
-          ),
-          _StatusRow(
-            title: 'Сервер отправки',
-            subtitle: relayReady ? 'Настроен' : 'Не указан',
-            isReady: relayReady,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusRow extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final bool isReady;
-
-  const _StatusRow({
-    required this.title,
-    required this.subtitle,
-    required this.isReady,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isReady ? AppColors.success : AppColors.danger;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Icon(
-            isReady ? Icons.check_circle : Icons.error_outline,
-            color: color,
-            size: 22,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LastEventsCard extends StatelessWidget {
-  final List<NativeForwardedMessage> messages;
-
-  const _LastEventsCard({
-    required this.messages,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Последние события',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (messages.isEmpty)
-            const Text(
-              'Пока нет входящих SMS или PUSH.\nКогда Android поймает событие, оно появится здесь автоматически.',
+            SizedBox(height: 6),
+            Text(
+              'Рабочие телефоны появятся здесь после первого SMS или PUSH',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary,
-                fontSize: 13,
+                fontSize: 14,
               ),
-            )
-          else
-            ...messages.take(5).map(
-                  (message) => _EventRow(message: message),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _EventRow extends StatelessWidget {
-  final NativeForwardedMessage message;
-
-  const _EventRow({
-    required this.message,
-  });
+class _EmptyEvents extends StatelessWidget {
+  const _EmptyEvents();
 
   @override
   Widget build(BuildContext context) {
-    final isSms = message.isSms;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 17,
-            backgroundColor: AppColors.primary.withOpacity(0.13),
-            child: Icon(
-              isSms ? Icons.sms_outlined : Icons.notifications_none,
-              color: AppColors.primary,
-              size: 18,
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              Icons.notifications_off_outlined,
+              color: AppColors.textSecondary,
+              size: 42,
             ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${isSms ? 'SMS' : 'PUSH'} • ${message.displayTitle}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  message.displaySubtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
+            SizedBox(height: 12),
+            Text(
+              'Событий нет',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+            SizedBox(height: 6),
+            Text(
+              'Новые SMS и PUSH появятся здесь автоматически',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

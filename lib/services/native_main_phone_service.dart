@@ -4,8 +4,13 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 class NativeMainPhoneService {
-  static const MethodChannel _channel = MethodChannel('vidra/android_permissions');
-  static const EventChannel _eventsChannel = EventChannel('vidra/native_events');
+  static const MethodChannel _channel = MethodChannel(
+    'vidra/android_permissions',
+  );
+
+  static const EventChannel _eventsChannel = EventChannel(
+    'vidra/native_events',
+  );
 
   const NativeMainPhoneService();
 
@@ -80,7 +85,7 @@ class NativeMainPhoneService {
   Future<List<NativeForwardedMessage>> getMessages() async {
     try {
       final value = await _channel.invokeMethod<String>('getNativeMessages');
-      final list = jsonDecode(value ?? '[]') as List;
+      final list = jsonDecode(value ?? '[]') as List<dynamic>;
 
       final messages = list
           .whereType<Map>()
@@ -279,6 +284,8 @@ class NativeForwardedMessage {
   final String text;
   final String deviceName;
   final String deviceId;
+  final String deviceBrand;
+  final String deviceModel;
   final String status;
   final int receivedAt;
 
@@ -292,6 +299,8 @@ class NativeForwardedMessage {
     required this.text,
     required this.deviceName,
     required this.deviceId,
+    required this.deviceBrand,
+    required this.deviceModel,
     required this.status,
     required this.receivedAt,
   });
@@ -307,6 +316,8 @@ class NativeForwardedMessage {
       text: (json['text'] ?? '').toString(),
       deviceName: (json['deviceName'] ?? '').toString(),
       deviceId: (json['deviceId'] ?? '').toString(),
+      deviceBrand: (json['deviceBrand'] ?? '').toString(),
+      deviceModel: (json['deviceModel'] ?? '').toString(),
       status: (json['status'] ?? '').toString(),
       receivedAt: MainPhoneNativeStatus._toInt(json['receivedAt']),
     );

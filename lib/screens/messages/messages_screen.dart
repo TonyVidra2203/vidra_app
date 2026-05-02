@@ -23,11 +23,14 @@ class _MessagesScreenState extends State<MessagesScreen>
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
   StreamSubscription<void>? messageUpdatesSubscription;
+  Timer? refreshTimer;
 
   MessageFilter selectedFilter = MessageFilter.all;
+
   bool isSearchOpen = false;
   bool isLoading = true;
   bool isRefreshing = false;
+
   String searchQuery = '';
 
   List<MessageModel> messages = [];
@@ -65,16 +68,21 @@ class _MessagesScreenState extends State<MessagesScreen>
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addObserver(this);
 
     _loadMessages();
     _listenMessageUpdates();
+    _startAutoRefresh();
   }
 
   @override
   void dispose() {
     messageUpdatesSubscription?.cancel();
+    refreshTimer?.cancel();
+
     WidgetsBinding.instance.removeObserver(this);
+
     super.dispose();
   }
 
@@ -83,6 +91,8 @@ class _MessagesScreenState extends State<MessagesScreen>
     if (state == AppLifecycleState.resumed) {
       _loadMessages();
       _listenMessageUpdates();
+      _startAutoRefresh();
+      return;
     }
 
     if (state == AppLifecycleState.paused ||
@@ -90,6 +100,9 @@ class _MessagesScreenState extends State<MessagesScreen>
         state == AppLifecycleState.detached) {
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
+
+      refreshTimer?.cancel();
+      refreshTimer = null;
     }
   }
 
@@ -101,7 +114,15 @@ class _MessagesScreenState extends State<MessagesScreen>
     });
   }
 
-  Future<void> _loadMessages() async {
+  void _startAutoRefresh() {
+    refreshTimer?.cancel();
+
+    refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _loadMessages(showLoader: false);
+    });
+  }
+
+  Future<void> _loadMessages({bool showLoader = true}) async {
     if (isRefreshing) {
       return;
     }
@@ -115,9 +136,14 @@ class _MessagesScreenState extends State<MessagesScreen>
       return;
     }
 
+    final newMessages = nativeMessages.map(_mapNativeMessage).toList();
+
     setState(() {
-      messages = nativeMessages.map(_mapNativeMessage).toList();
-      isLoading = false;
+      messages = newMessages;
+
+      if (showLoader || isLoading) {
+        isLoading = false;
+      }
     });
 
     isRefreshing = false;
@@ -129,7 +155,9 @@ class _MessagesScreenState extends State<MessagesScreen>
     return MessageModel(
       sender: message.displayTitle,
       text: message.displaySubtitle,
-      deviceName: message.deviceName.isEmpty ? 'Главный телефон' : message.deviceName,
+      deviceName: message.deviceName.isEmpty
+          ? 'Главный телефон'
+          : message.deviceName,
       time: _formatTime(date),
       type: message.isSms ? MessageType.sms : MessageType.push,
       status: _mapStatus(message.status),

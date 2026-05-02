@@ -17,18 +17,10 @@ public class SmsReceiver extends BroadcastReceiver {
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
     private static final String STORAGE_PREFS = "vidra_native_storage";
-    private static final String FILTERS_PREFS = "vidra_filter_settings";
 
     private static final String KEY_SMS_FORWARDING = "smsForwarding";
     private static final String KEY_DEVICE_NAME = "deviceName";
     private static final String KEY_DEVICE_ID = "deviceId";
-
-    private static final String KEY_VERIFICATION_CODES = "verificationCodes";
-    private static final String KEY_BANK_MESSAGES = "bankMessages";
-    private static final String KEY_AD_SMS = "adSms";
-    private static final String KEY_INTERNATIONAL_NUMBERS = "internationalNumbers";
-    private static final String KEY_CRYPTO_SPAM = "cryptoSpam";
-    private static final String KEY_BLACKLIST = "blacklist";
 
     private static final String SMS_LIST_KEY = "sms_messages";
 
@@ -82,16 +74,10 @@ public class SmsReceiver extends BroadcastReceiver {
                 return;
             }
 
-            if (!isAllowedByFilters(context, sender, body)) {
-                Log.d(TAG, "SMS skipped by filters");
-                return;
-            }
-
             JSONObject payload = buildPayload(context, sender, body, receivedAt);
 
             saveSmsLocally(context, payload);
             MainActivity.notifyMessagesUpdated(context);
-
             NetworkClient.sendEvent(context, payload);
 
             Log.d(TAG, "Incoming SMS captured and processed");
@@ -109,124 +95,12 @@ public class SmsReceiver extends BroadcastReceiver {
         return prefs.getBoolean(KEY_SMS_FORWARDING, true);
     }
 
-    private boolean isAllowedByFilters(Context context, String sender, String body) {
-        SharedPreferences filters = context.getSharedPreferences(
-                FILTERS_PREFS,
-                Context.MODE_PRIVATE
-        );
-
-        String normalizedSender = safeString(sender).toLowerCase().trim();
-        String normalizedBody = safeString(body).toLowerCase().trim();
-        String combined = normalizedSender + " " + normalizedBody;
-
-        if (!filters.getBoolean(KEY_BLACKLIST, true) && isBlacklisted(combined)) {
-            return false;
-        }
-
-        if (!filters.getBoolean(KEY_VERIFICATION_CODES, true) && isVerificationCode(combined)) {
-            return false;
-        }
-
-        if (!filters.getBoolean(KEY_BANK_MESSAGES, true) && isBankMessage(combined)) {
-            return false;
-        }
-
-        if (!filters.getBoolean(KEY_AD_SMS, false) && isAdSms(combined)) {
-            return false;
-        }
-
-        if (!filters.getBoolean(KEY_INTERNATIONAL_NUMBERS, true)
-                && isInternationalSender(normalizedSender)) {
-            return false;
-        }
-
-        if (!filters.getBoolean(KEY_CRYPTO_SPAM, false) && isCryptoSpam(combined)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private boolean isVerificationCode(String text) {
-        return text.contains("код")
-                || text.contains("code")
-                || text.contains("otp")
-                || text.contains("пароль")
-                || text.contains("password")
-                || text.contains("verification")
-                || text.contains("подтверждения")
-                || text.matches(".*\\b\\d{4,8}\\b.*");
-    }
-
-    private boolean isBankMessage(String text) {
-        return text.contains("bank")
-                || text.contains("банк")
-                || text.contains("sber")
-                || text.contains("сбер")
-                || text.contains("tinkoff")
-                || text.contains("тинькофф")
-                || text.contains("alfabank")
-                || text.contains("альфа")
-                || text.contains("vtb")
-                || text.contains("втб")
-                || text.contains("mir")
-                || text.contains("мир")
-                || text.contains("card")
-                || text.contains("карта")
-                || text.contains("balance")
-                || text.contains("баланс")
-                || text.contains("покупка")
-                || text.contains("списание")
-                || text.contains("зачисление");
-    }
-
-    private boolean isAdSms(String text) {
-        return text.contains("скидка")
-                || text.contains("sale")
-                || text.contains("акция")
-                || text.contains("promo")
-                || text.contains("промо")
-                || text.contains("discount")
-                || text.contains("bonus")
-                || text.contains("бонус")
-                || text.contains("offer")
-                || text.contains("реклама")
-                || text.contains("unsubscribe")
-                || text.contains("отпис");
-    }
-
-    private boolean isInternationalSender(String sender) {
-        return sender.startsWith("+") && !sender.startsWith("+7");
-    }
-
-    private boolean isCryptoSpam(String text) {
-        return text.contains("crypto")
-                || text.contains("bitcoin")
-                || text.contains("btc")
-                || text.contains("usdt")
-                || text.contains("binance")
-                || text.contains("bybit")
-                || text.contains("airdrop")
-                || text.contains("wallet")
-                || text.contains("blockchain")
-                || text.contains("крипто")
-                || text.contains("биткоин");
-    }
-
-    private boolean isBlacklisted(String text) {
-        return text.contains("casino")
-                || text.contains("казино")
-                || text.contains("1xbet")
-                || text.contains("stavka")
-                || text.contains("ставка")
-                || text.contains("bet")
-                || text.contains("loan")
-                || text.contains("займ")
-                || text.contains("кредит")
-                || text.contains("микрозайм");
-    }
-
-    private JSONObject buildPayload(Context context, String sender, String body, long receivedAt) {
+    private JSONObject buildPayload(
+            Context context,
+            String sender,
+            String body,
+            long receivedAt
+    ) {
         JSONObject payload = new JSONObject();
 
         try {
@@ -248,6 +122,8 @@ public class SmsReceiver extends BroadcastReceiver {
             payload.put("text", body);
             payload.put("deviceName", deviceName == null ? "" : deviceName);
             payload.put("deviceId", deviceId == null ? "" : deviceId);
+            payload.put("deviceBrand", clean(Build.MANUFACTURER));
+            payload.put("deviceModel", clean(Build.MODEL));
             payload.put("status", "received");
             payload.put("receivedAt", receivedAt);
         } catch (Exception e) {
@@ -265,7 +141,6 @@ public class SmsReceiver extends BroadcastReceiver {
             );
 
             String currentJson = prefs.getString(SMS_LIST_KEY, "[]");
-
             JSONArray oldMessages = new JSONArray(currentJson);
             JSONArray newMessages = new JSONArray();
 
@@ -287,5 +162,9 @@ public class SmsReceiver extends BroadcastReceiver {
 
     private String safeString(String value) {
         return value == null ? "" : value;
+    }
+
+    private String clean(String value) {
+        return value == null ? "" : value.trim();
     }
 }
