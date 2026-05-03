@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
+import '../pairing/device_pairing_screen.dart';
 import 'sender_permissions_screen.dart';
 import 'sender_status_screen.dart';
 import 'widgets/sender_bottom_nav_bar.dart';
@@ -16,7 +17,10 @@ class SenderSettingsScreen extends StatefulWidget {
 
 class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
   final SenderSettingsService settingsService = const SenderSettingsService();
+
   final TextEditingController deviceNameController = TextEditingController();
+  final TextEditingController relayUrlController = TextEditingController();
+  final TextEditingController relayApiKeyController = TextEditingController();
 
   SenderSettingsState settings = const SenderSettingsState(
     smsForwarding: true,
@@ -37,6 +41,8 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
   @override
   void dispose() {
     deviceNameController.dispose();
+    relayUrlController.dispose();
+    relayApiKeyController.dispose();
     super.dispose();
   }
 
@@ -49,6 +55,8 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
       setState(() {
         settings = loadedSettings;
         deviceNameController.text = loadedSettings.deviceName;
+        relayUrlController.text = loadedSettings.relayUrl;
+        relayApiKeyController.text = loadedSettings.relayApiKey;
         isLoading = false;
       });
     } catch (_) {
@@ -66,16 +74,19 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
     await settingsService.save(newSettings);
 
     if (!mounted) return;
-
     setState(() => isSaving = false);
   }
 
-  Future<void> _saveDeviceName() async {
+  Future<void> _saveDeviceSettings() async {
     final deviceName = deviceNameController.text.trim();
+    final relayUrl = relayUrlController.text.trim();
+    final relayApiKey = relayApiKeyController.text.trim();
 
     await _updateSettings(
       settings.copyWith(
         deviceName: deviceName.isEmpty ? 'Рабочий телефон' : deviceName,
+        relayUrl: relayUrl,
+        relayApiKey: relayApiKey,
       ),
     );
 
@@ -83,6 +94,15 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Настройки сохранены')),
+    );
+  }
+
+  void _openPairingScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const DevicePairingScreen(),
+      ),
     );
   }
 
@@ -121,11 +141,84 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _buildDeviceCard(),
+                  _PairingCard(onTap: _openPairingScreen),
+                  const SizedBox(height: 14),
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Рабочее устройство',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Название будет отображаться в личном кабинете и на главном телефоне.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: deviceNameController,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: 'Рабочий телефон',
+                            labelText: 'Название устройства',
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: relayUrlController,
+                          keyboardType: TextInputType.url,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText:
+                            'http://45.80.68.83:8000/events',
+                            labelText: 'URL сервера',
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: relayApiKeyController,
+                          obscureText: true,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: 'Ключ будет выдан сервером',
+                            labelText: 'API-ключ',
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 46,
+                          child: ElevatedButton(
+                            onPressed: isSaving
+                                ? null
+                                : _saveDeviceSettings,
+                            child: Text(
+                              isSaving ? 'Сохраняю...' : 'Сохранить',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка SMS',
-                    subtitle: 'Передавать входящие SMS на главный телефон',
+                    subtitle: 'Передавать входящие SMS в аккаунт VidRA',
                     value: settings.smsForwarding,
                     onChanged: (value) {
                       _updateSettings(
@@ -136,7 +229,8 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка PUSH',
-                    subtitle: 'Передавать уведомления приложений на главный телефон',
+                    subtitle:
+                    'Передавать уведомления приложений в аккаунт VidRA',
                     value: settings.pushForwarding,
                     onChanged: (value) {
                       _updateSettings(
@@ -147,7 +241,8 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Фоновый режим',
-                    subtitle: 'Продолжать работу после закрытия приложения',
+                    subtitle:
+                    'Продолжать работу после закрытия приложения',
                     value: settings.backgroundMode,
                     onChanged: (value) {
                       _updateSettings(
@@ -178,54 +273,6 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
       ),
     );
   }
-
-  Widget _buildDeviceCard() {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Рабочее устройство',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Название будет отображаться на главном телефоне.',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: deviceNameController,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-            ),
-            decoration: const InputDecoration(
-              hintText: 'Рабочий телефон',
-              labelText: 'Название устройства',
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: ElevatedButton(
-              onPressed: isSaving ? null : _saveDeviceName,
-              child: Text(
-                isSaving ? 'Сохраняю...' : 'Сохранить',
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _Header extends StatelessWidget {
@@ -244,6 +291,50 @@ class _Header extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PairingCard extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _PairingCard({
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const CircleAvatar(
+          backgroundColor: Color(0x1A8B5CF6),
+          child: Icon(
+            Icons.link,
+            color: AppColors.primary,
+          ),
+        ),
+        title: const Text(
+          'Связка телефонов',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: const Text(
+          'Введите код с главного телефона или проверьте привязку',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+          ),
+        ),
+        trailing: const Icon(
+          Icons.chevron_right,
+          color: AppColors.primary,
+        ),
+        onTap: onTap,
       ),
     );
   }

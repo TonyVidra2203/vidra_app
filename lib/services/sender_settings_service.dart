@@ -20,7 +20,7 @@ class SenderSettingsService {
   Future<SenderSettingsState> load() async {
     final prefs = await SharedPreferences.getInstance();
 
-    return SenderSettingsState(
+    final settings = SenderSettingsState(
       smsForwarding: prefs.getBool(_smsForwardingKey) ?? true,
       pushForwarding: prefs.getBool(_pushForwardingKey) ?? true,
       backgroundMode: prefs.getBool(_backgroundModeKey) ?? true,
@@ -30,6 +30,10 @@ class SenderSettingsService {
       relayUrl: prefs.getString(_relayUrlKey) ?? '',
       relayApiKey: prefs.getString(_relayApiKeyKey) ?? '',
     );
+
+    await _saveNativeSettings(settings);
+
+    return settings;
   }
 
   Future<void> save(SenderSettingsState settings) async {
@@ -39,10 +43,10 @@ class SenderSettingsService {
     await prefs.setBool(_pushForwardingKey, settings.pushForwarding);
     await prefs.setBool(_backgroundModeKey, settings.backgroundMode);
     await prefs.setBool(_onlyWithInternetKey, settings.onlyWithInternet);
-    await prefs.setString(_deviceNameKey, settings.deviceName);
-    await prefs.setString(_deviceIdKey, settings.deviceId);
-    await prefs.setString(_relayUrlKey, settings.relayUrl);
-    await prefs.setString(_relayApiKeyKey, settings.relayApiKey);
+    await prefs.setString(_deviceNameKey, settings.deviceName.trim());
+    await prefs.setString(_deviceIdKey, settings.deviceId.trim());
+    await prefs.setString(_relayUrlKey, settings.relayUrl.trim());
+    await prefs.setString(_relayApiKeyKey, settings.relayApiKey.trim());
 
     await _saveNativeSettings(settings);
   }
@@ -54,13 +58,14 @@ class SenderSettingsService {
         'pushForwarding': settings.pushForwarding,
         'backgroundMode': settings.backgroundMode,
         'onlyWithInternet': settings.onlyWithInternet,
-        'deviceName': settings.deviceName,
-        'deviceId': settings.deviceId,
-        'relayUrl': settings.relayUrl,
-        'relayApiKey': settings.relayApiKey,
+        'deviceName': settings.deviceName.trim(),
+        'deviceId': settings.deviceId.trim(),
+        'relayUrl': settings.relayUrl.trim(),
+        'relayApiKey': settings.relayApiKey.trim(),
       });
     } catch (_) {
-      // Flutter-настройки сохранены. Native-слой обновится после следующего сохранения.
+      // Flutter-настройки сохранены.
+      // Native-слой обновится после следующего сохранения.
     }
   }
 }

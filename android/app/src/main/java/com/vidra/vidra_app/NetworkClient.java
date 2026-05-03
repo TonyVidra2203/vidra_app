@@ -11,8 +11,8 @@ import android.util.Log;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.OutputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -43,7 +43,6 @@ public final class NetworkClient {
         );
 
         boolean onlyWithInternet = prefs.getBoolean(KEY_ONLY_WITH_INTERNET, false);
-
         if (onlyWithInternet && !hasInternet(context)) {
             Log.d(TAG, "Internet is required, but device is offline");
             return;
@@ -125,10 +124,7 @@ public final class NetworkClient {
 
             Log.e(
                     TAG,
-                    "Relay rejected event. Code: "
-                            + responseCode
-                            + ", body: "
-                            + responseBody
+                    "Relay rejected event. Code: " + responseCode + ", body: " + responseBody
             );
         } catch (Exception e) {
             Log.e(TAG, "Failed to send event to relay", e);
@@ -139,10 +135,7 @@ public final class NetworkClient {
         }
     }
 
-    private static String readResponse(
-            HttpURLConnection connection,
-            int responseCode
-    ) {
+    private static String readResponse(HttpURLConnection connection, int responseCode) {
         try {
             BufferedReader reader;
 
@@ -182,10 +175,9 @@ public final class NetworkClient {
 
     private static boolean hasInternet(Context context) {
         try {
-            ConnectivityManager manager =
-                    (ConnectivityManager) context.getSystemService(
-                            Context.CONNECTIVITY_SERVICE
-                    );
+            ConnectivityManager manager = (ConnectivityManager) context.getSystemService(
+                    Context.CONNECTIVITY_SERVICE
+            );
 
             if (manager == null) {
                 return false;
@@ -198,13 +190,10 @@ public final class NetworkClient {
                     return false;
                 }
 
-                NetworkCapabilities capabilities =
-                        manager.getNetworkCapabilities(network);
+                NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
 
                 return capabilities != null
-                        && capabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_INTERNET
-                );
+                        && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
             }
 
             android.net.NetworkInfo activeNetwork = manager.getActiveNetworkInfo();
