@@ -14,6 +14,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   final TextEditingController deviceNameController = TextEditingController();
   final TextEditingController pairCodeController = TextEditingController();
+  final TextEditingController serverUrlController = TextEditingController();
 
   DevicePairingState state = const DevicePairingState.empty();
 
@@ -31,6 +32,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   void dispose() {
     deviceNameController.dispose();
     pairCodeController.dispose();
+    serverUrlController.dispose();
     super.dispose();
   }
 
@@ -42,6 +44,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     setState(() {
       state = loadedState;
       deviceNameController.text = loadedState.deviceName;
+      serverUrlController.text = _extractServerUrl(loadedState.relayUrl);
       isLoading = false;
     });
   }
@@ -52,17 +55,35 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       message = '';
     });
 
-    final newState = await service.createMainPhonePairCode(
-      deviceName: deviceNameController.text,
-    );
+    try {
+      final newState = await service.createMainPhonePairCode(
+        deviceName: deviceNameController.text,
+        serverUrl: serverUrlController.text,
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      state = newState;
-      isSaving = false;
-      message = 'Код создан. Введите его на рабочем телефоне.';
-    });
+      setState(() {
+        state = newState;
+        serverUrlController.text = _extractServerUrl(newState.relayUrl);
+        isSaving = false;
+        message = 'Код создан.\nВведите этот же сервер и код на рабочем телефоне.';
+      });
+    } on DevicePairingException catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+        message = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+        message = 'Не удалось создать код связки.';
+      });
+    }
   }
 
   Future<void> _connectWorkerPhone() async {
@@ -75,14 +96,16 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       final newState = await service.connectWorkerPhone(
         deviceName: deviceNameController.text,
         pairCode: pairCodeController.text,
+        serverUrl: serverUrlController.text,
       );
 
       if (!mounted) return;
 
       setState(() {
         state = newState;
+        serverUrlController.text = _extractServerUrl(newState.relayUrl);
         isSaving = false;
-        message = 'Рабочий телефон привязан. SMS и PUSH будут отправляться автоматически.';
+        message = 'Рабочий телефон привязан.\nSMS и PUSH будут отправляться на сервер.';
       });
     } on DevicePairingException catch (error) {
       if (!mounted) return;
@@ -117,7 +140,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       setState(() {
         state = newState;
         isSaving = false;
-        message = 'Связка подтверждена. Главный телефон готов получать события.';
+        message = 'Связка подтверждена.\nГлавный телефон будет получать события с сервера.';
       });
     } on DevicePairingException catch (error) {
       if (!mounted) return;
@@ -176,6 +199,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
           if (!state.isPaired) ...[
             _buildDeviceNameField(),
             const SizedBox(height: 16),
+            _buildServerUrlField(),
+            const SizedBox(height: 16),
           ],
           if (state.status == DevicePairingStatus.notPaired) _buildRoleButtons(),
           if (state.status == DevicePairingStatus.waitingForWorker)
@@ -195,10 +220,11 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          'Свяжите два телефона один раз.\n\n'
-              'Главный телефон показывает код.\n'
-              'Рабочий телефон вводит этот код.\n\n'
-              'После связки SMS и PUSH будут передаваться автоматически, без ручного ввода URL.',
+          'Свяжите два телефона через ваш VidRA сервер.\n\n'
+              '1. На главном телефоне введите адрес сервера и создайте код.\n'
+              '2. На рабочем телефоне введите тот же адрес сервера и этот код.\n'
+              '3. Рабочий телефон будет отправлять SMS/PUSH на сервер.\n'
+              '4. Главный телефон будет забирать события с сервера.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),
@@ -208,10 +234,24 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   Widget _buildDeviceNameField() {
     return TextField(
       controller: deviceNameController,
-      textInputAction: TextInputAction.done,
+      textInputAction: TextInputAction.next,
       decoration: const InputDecoration(
         labelText: 'Название этого телефона',
         hintText: 'Например: Магазин 1',
+        border: OutlineInputBorder(),
+      ),
+    );
+  }
+
+  Widget _buildServerUrlField() {
+    return TextField(
+      controller: serverUrlController,
+      keyboardType: TextInputType.url,
+      textInputAction: TextInputAction.done,
+      decoration: const InputDecoration(
+        labelText: 'Адрес сервера',
+        hintText: 'https://your-domain.com',
+        helperText: 'Одинаковый адрес на главном и рабочем телефоне',
         border: OutlineInputBorder(),
       ),
     );
@@ -274,8 +314,14 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            SelectableText(
+              _extractServerUrl(state.relayUrl),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
             const Text(
-              'Откройте VidRA на рабочем телефоне, выберите “Это рабочий телефон” и введите этот код.',
+              'На рабочем телефоне введите этот же адрес сервера и этот код.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 18),
@@ -321,9 +367,18 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             if (state.pairCode.isNotEmpty) Text('Код связки: ${state.pairCode}'),
             if (state.pairedDeviceName.isNotEmpty)
               Text('Связан с: ${state.pairedDeviceName}'),
+            if (state.relayUrl.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SelectableText(
+                'Сервер: ${_extractServerUrl(state.relayUrl)}',
+                textAlign: TextAlign.center,
+              ),
+            ],
             const SizedBox(height: 14),
-            const Text(
-              'Теперь приложение использует скрытый канал передачи. Пользователю не нужно вводить Relay URL вручную.',
+            Text(
+              state.isMainPhone
+                  ? 'Главный телефон будет получать события с сервера в разделе “Сообщения”.'
+                  : 'Рабочий телефон будет отправлять SMS и PUSH на сервер.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 18),
@@ -348,5 +403,21 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         ),
       ),
     );
+  }
+
+  String _extractServerUrl(String relayUrl) {
+    final cleaned = relayUrl.trim();
+
+    if (cleaned.isEmpty) {
+      return '';
+    }
+
+    const marker = '/events/';
+
+    if (!cleaned.contains(marker)) {
+      return cleaned;
+    }
+
+    return cleaned.split(marker).first;
   }
 }

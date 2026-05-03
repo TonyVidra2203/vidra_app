@@ -68,7 +68,7 @@ class DevicePairingState {
     };
   }
 
-  factory DevicePairingState.fromJson(Map<String, dynamic> json) {
+  factory DevicePairingState.fromJson(Map<dynamic, dynamic> json) {
     return DevicePairingState(
       role: _roleFromString(json['role']?.toString()),
       status: _statusFromString(json['status']?.toString()),
@@ -112,17 +112,6 @@ class DevicePairingService {
   static const String _senderRelayUrlKey = 'sender_relay_url';
   static const String _senderRelayApiKeyKey = 'sender_relay_api_key';
 
-  /*
-   * Пользователь больше не вводит URL руками.
-   *
-   * Но технически сервер всё равно нужен.
-   * Замени этот адрес один раз на адрес своего VidRA relay/backend.
-   */
-  static const String _relayBaseUrl = 'https://your-vidra-relay.com';
-
-  /*
-   * Можно оставить пустым, если relay не требует API key.
-   */
   static const String _relayApiKey = '';
 
   Future<DevicePairingState> loadState() async {
@@ -136,16 +125,8 @@ class DevicePairingService {
     try {
       final decoded = jsonDecode(rawValue);
 
-      if (decoded is Map<String, dynamic>) {
-        return DevicePairingState.fromJson(decoded);
-      }
-
       if (decoded is Map) {
-        return DevicePairingState.fromJson(
-          decoded.map(
-                (key, value) => MapEntry(key.toString(), value),
-          ),
-        );
+        return DevicePairingState.fromJson(decoded);
       }
 
       return const DevicePairingState.empty();
@@ -156,9 +137,16 @@ class DevicePairingService {
 
   Future<DevicePairingState> createMainPhonePairCode({
     required String deviceName,
+    required String serverUrl,
   }) async {
+    final cleanedServerUrl = _cleanServerUrl(serverUrl);
+
+    if (cleanedServerUrl.isEmpty) {
+      throw const DevicePairingException('Введите адрес вашего сервера.');
+    }
+
     final pairCode = _generatePairCode();
-    final relayUrl = _buildRelayUrl(pairCode);
+    final relayUrl = _buildRelayUrl(cleanedServerUrl, pairCode);
 
     final state = DevicePairingState(
       role: DevicePairingRole.mainPhone,
@@ -180,8 +168,10 @@ class DevicePairingService {
   Future<DevicePairingState> connectWorkerPhone({
     required String deviceName,
     required String pairCode,
+    required String serverUrl,
   }) async {
     final cleanedCode = _cleanPairCode(pairCode);
+    final cleanedServerUrl = _cleanServerUrl(serverUrl);
 
     if (!_isValidPairCode(cleanedCode)) {
       throw const DevicePairingException(
@@ -189,7 +179,13 @@ class DevicePairingService {
       );
     }
 
-    final relayUrl = _buildRelayUrl(cleanedCode);
+    if (cleanedServerUrl.isEmpty) {
+      throw const DevicePairingException(
+        'Введите тот же адрес сервера, что и на главном телефоне.',
+      );
+    }
+
+    final relayUrl = _buildRelayUrl(cleanedServerUrl, cleanedCode);
     final cleanDeviceName = _cleanName(
       deviceName,
       fallback: 'Рабочий телефон',
@@ -337,8 +333,8 @@ class DevicePairingService {
     return deviceId;
   }
 
-  String _buildRelayUrl(String pairCode) {
-    final base = _relayBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+  String _buildRelayUrl(String serverUrl, String pairCode) {
+    final base = serverUrl.trim().replaceAll(RegExp(r'/+$'), '');
     return '$base/events/$pairCode';
   }
 
@@ -352,6 +348,7 @@ class DevicePairingService {
     final random = Random.secure();
     final time = DateTime.now().millisecondsSinceEpoch;
     final randomPart = random.nextInt(999999).toString().padLeft(6, '0');
+
     return 'vidra_$time$randomPart';
   }
 
@@ -366,6 +363,20 @@ class DevicePairingService {
     }
 
     return trimmed;
+  }
+
+  String _cleanServerUrl(String value) {
+    final trimmed = value.trim();
+
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    return 'https://$trimmed';
   }
 
   String _cleanPairCode(String value) {
