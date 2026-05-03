@@ -5,4 +5,5 @@ class AppRoutes {
   static const messages = '/messages';
   static const filters = '/filters';
   static const settings = '/settings';
+  static const devicePairing = '/device-pairing';
 }

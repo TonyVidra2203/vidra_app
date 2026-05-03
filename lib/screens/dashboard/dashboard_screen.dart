@@ -8,6 +8,9 @@ import '../../models/event_model.dart';
 import '../../navigation/app_routes.dart';
 import '../../services/native_main_phone_service.dart';
 import '../../widgets/common/app_bottom_nav_bar.dart';
+import '../../widgets/common/app_card.dart';
+import '../../widgets/dashboard/device_list.dart';
+import '../../widgets/dashboard/event_list.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -20,7 +23,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
-  StreamSubscription? messageUpdatesSubscription;
+  StreamSubscription<dynamic>? messageUpdatesSubscription;
   Timer? refreshTimer;
 
   List<DeviceModel> devices = [];
@@ -29,6 +32,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addObserver(this);
     _loadDashboardData();
     _listenMessageUpdates();
@@ -40,6 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     messageUpdatesSubscription?.cancel();
     refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
+
     super.dispose();
   }
 
@@ -57,6 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         state == AppLifecycleState.detached) {
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
+
       refreshTimer?.cancel();
       refreshTimer = null;
     }
@@ -64,6 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _listenMessageUpdates() {
     messageUpdatesSubscription?.cancel();
+
     messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
       _loadDashboardData();
     });
@@ -71,6 +78,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _startAutoRefresh() {
     refreshTimer?.cancel();
+
     refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _loadDashboardData();
     });
@@ -180,7 +188,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   bool _isRecentlyActive(int receivedAt) {
     final date = DateTime.fromMillisecondsSinceEpoch(receivedAt);
-    return DateTime.now().difference(date).inMinutes < 5;
+    final difference = DateTime.now().difference(date);
+
+    return difference.inMinutes < 5;
   }
 
   EventModel _mapMessageToEvent(NativeForwardedMessage message) {
@@ -196,41 +206,46 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   String _formatTime(DateTime date) {
-    return '${date.hour.toString().padLeft(2, '0')}:'
-        '${date.minute.toString().padLeft(2, '0')}:'
-        '${date.second.toString().padLeft(2, '0')}';
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    final second = date.second.toString().padLeft(2, '0');
+
+    return '$hour:$minute:$second';
   }
 
   String _formatLastSeen(int receivedAt) {
     final date = DateTime.fromMillisecondsSinceEpoch(receivedAt);
-    final diff = DateTime.now().difference(date);
+    final now = DateTime.now();
+    final difference = now.difference(date);
 
-    if (diff.inSeconds < 10) {
+    if (difference.inSeconds < 10) {
       return 'Сейчас';
     }
 
-    if (diff.inMinutes < 1) {
-      return '${diff.inSeconds} сек. назад';
+    if (difference.inMinutes < 1) {
+      return '${difference.inSeconds} сек. назад';
     }
 
-    if (diff.inHours < 1) {
-      return '${diff.inMinutes} мин. назад';
+    if (difference.inHours < 1) {
+      return '${difference.inMinutes} мин. назад';
     }
 
-    if (diff.inDays < 1) {
-      return '${diff.inHours} ч. назад';
+    if (difference.inDays < 1) {
+      return '${difference.inHours} ч. назад';
     }
 
     return '${date.day.toString().padLeft(2, '0')}.'
-        '${date.month.toString().padLeft(2, '0')}.${date.year}';
+        '${date.month.toString().padLeft(2, '0')}.'
+        '${date.year} '
+        '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
   }
 
-  int get _onlineCount {
-    return devices.where((device) => device.isOnline).length;
-  }
-
-  int get _offlineCount {
-    return devices.length - _onlineCount;
+  void _openModeSelection() {
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      AppRoutes.modeSelection,
+          (route) => false,
+    );
   }
 
   @override
@@ -238,548 +253,152 @@ class _DashboardScreenState extends State<DashboardScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            const _BackgroundGlow(),
-            ListView(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 104),
-              children: [
-                const _DashboardHeader(),
-                const SizedBox(height: 18),
-                _DevicesCard(
-                  devices: devices,
-                  totalCount: devices.length,
-                  onlineCount: _onlineCount,
-                  offlineCount: _offlineCount,
-                ),
-                const SizedBox(height: 18),
-                _EventsCard(events: events),
-              ],
-            ),
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: AppBottomNavBar(
-                currentRoute: AppRoutes.dashboard,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BackgroundGlow extends StatelessWidget {
-  const _BackgroundGlow();
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: const Alignment(-0.35, -0.95),
-            radius: 0.9,
-            colors: [
-              AppColors.primary.withValues(alpha: 0.12),
-              AppColors.background.withValues(alpha: 0),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Icon(
-          Icons.menu_rounded,
-          color: AppColors.primary,
-          size: 32,
-        ),
-        const SizedBox(width: 16),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Дашборд',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              SizedBox(height: 3),
-              Text(
-                'Главный телефон (прием данных)',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            const Icon(
-              Icons.notifications_none_rounded,
-              color: AppColors.primary,
-              size: 32,
-            ),
-            Positioned(
-              right: 1,
-              top: 1,
-              child: Container(
-                width: 9,
-                height: 9,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _DevicesCard extends StatelessWidget {
-  final List<DeviceModel> devices;
-  final int totalCount;
-  final int onlineCount;
-  final int offlineCount;
-
-  const _DevicesCard({
-    required this.devices,
-    required this.totalCount,
-    required this.onlineCount,
-    required this.offlineCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _DashboardCard(
-      child: Column(
-        children: [
-          const _CardTitleRow(
-            title: 'Устройства',
-            action: 'Все устройства',
-          ),
-          const SizedBox(height: 18),
-          _DeviceSummary(
-            totalCount: totalCount,
-            onlineCount: onlineCount,
-            offlineCount: offlineCount,
-          ),
-          const SizedBox(height: 16),
-          const _DividerLine(),
-          if (devices.isEmpty)
-            const _EmptyState(
-              icon: Icons.phone_android_rounded,
-              title: 'Нет устройств',
-              subtitle: 'Устройства появятся после первого SMS или PUSH',
-            )
-          else
-            ...devices.take(5).map((device) {
-              return _DeviceRow(device: device);
-            }),
-        ],
-      ),
-    );
-  }
-}
-
-class _DeviceSummary extends StatelessWidget {
-  final int totalCount;
-  final int onlineCount;
-  final int offlineCount;
-
-  const _DeviceSummary({
-    required this.totalCount,
-    required this.onlineCount,
-    required this.offlineCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const _SummaryIcon(),
-        const SizedBox(width: 14),
-        Expanded(
-          child: _SummaryItem(
-            label: 'Всего',
-            value: totalCount.toString(),
-          ),
-        ),
-        Expanded(
-          child: _SummaryItem(
-            label: 'Онлайн',
-            value: onlineCount.toString(),
-            dotColor: AppColors.success,
-          ),
-        ),
-        Expanded(
-          child: _SummaryItem(
-            label: 'Оффлайн',
-            value: offlineCount.toString(),
-            dotColor: AppColors.danger,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SummaryIcon extends StatelessWidget {
-  const _SummaryIcon();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 34,
-      child: Icon(
-        Icons.phone_android_rounded,
-        color: AppColors.primary,
-        size: 31,
-      ),
-    );
-  }
-}
-
-class _SummaryItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? dotColor;
-
-  const _SummaryItem({
-    required this.label,
-    required this.value,
-    this.dotColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            if (dotColor != null) ...[
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: dotColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 5),
-            ],
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 30,
-            fontWeight: FontWeight.w300,
-            height: 1,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DeviceRow extends StatelessWidget {
-  final DeviceModel device;
-
-  const _DeviceRow({
-    required this.device,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = device.isOnline ? AppColors.success : AppColors.danger;
-    final statusText = device.isOnline ? 'Онлайн' : 'Оффлайн';
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.phone_android_rounded,
-                color: AppColors.textPrimary,
-                size: 26,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 6,
+            const _Header(),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      device.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    _ModeSelectionButton(
+                      onPressed: _openModeSelection,
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      device.system,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 5,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
+                    const SizedBox(height: 16),
+                    AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            statusText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          const _CardTitle(
+                            title: 'Устройства',
+                            action: 'Подключённые',
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            device.lastSeen,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
+                          const SizedBox(height: 12),
+                          devices.isEmpty
+                              ? const _EmptyDevices()
+                              : DeviceList(devices: devices),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _CardTitle(
+                            title: 'Последние события',
+                            action: 'Фактические',
                           ),
+                          const SizedBox(height: 12),
+                          events.isEmpty
+                              ? const _EmptyEvents()
+                              : EventList(events: events),
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.primary,
-                size: 25,
-              ),
-            ],
-          ),
+            ),
+            const AppBottomNavBar(
+              currentRoute: AppRoutes.dashboard,
+            ),
+          ],
         ),
-        const _DividerLine(),
-      ],
+      ),
     );
   }
 }
 
-class _EventsCard extends StatelessWidget {
-  final List<EventModel> events;
-
-  const _EventsCard({
-    required this.events,
-  });
+class _Header extends StatelessWidget {
+  const _Header();
 
   @override
   Widget build(BuildContext context) {
-    return _DashboardCard(
-      child: Column(
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
+      child: Row(
         children: [
-          const _CardTitleRow(
-            title: 'Последние события',
-            action: 'Все события',
+          Icon(
+            Icons.menu,
+            color: AppColors.primary,
+            size: 32,
           ),
-          const SizedBox(height: 14),
-          if (events.isEmpty)
-            const _EmptyState(
-              icon: Icons.notifications_none_rounded,
-              title: 'Нет событий',
-              subtitle: 'Новые SMS и PUSH появятся здесь автоматически',
-            )
-          else
-            ...events.take(5).map((event) {
-              return _EventRow(event: event);
-            }),
+          SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Дашборд',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Главный телефон (прием данных)',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.notifications_none,
+            color: AppColors.primary,
+            size: 32,
+          ),
         ],
       ),
     );
   }
 }
 
-class _EventRow extends StatelessWidget {
-  final EventModel event;
+class _ModeSelectionButton extends StatelessWidget {
+  final VoidCallback onPressed;
 
-  const _EventRow({
-    required this.event,
+  const _ModeSelectionButton({
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(event.type);
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 19),
-          child: Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.swap_horiz),
+        label: const Text('Выбрать тип телефона'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(width: 14),
-        Padding(
-          padding: const EdgeInsets.only(top: 13),
-          child: Icon(
-            _eventIcon(event.type),
-            color: event.type == EventType.error
-                ? AppColors.danger
-                : AppColors.textPrimary,
-            size: 24,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        event.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      event.time,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const _DividerLine(),
-            ],
-          ),
-        ),
-      ],
+      ),
     );
-  }
-
-  Color _statusColor(EventType type) {
-    switch (type) {
-      case EventType.error:
-        return AppColors.danger;
-      case EventType.warning:
-        return AppColors.warning;
-      case EventType.device:
-      case EventType.sms:
-      case EventType.push:
-        return AppColors.success;
-    }
-  }
-
-  IconData _eventIcon(EventType type) {
-    switch (type) {
-      case EventType.device:
-        return Icons.phone_android_rounded;
-      case EventType.sms:
-        return Icons.chat_bubble_outline_rounded;
-      case EventType.push:
-        return Icons.notifications_none_rounded;
-      case EventType.error:
-        return Icons.warning_rounded;
-      case EventType.warning:
-        return Icons.info_outline_rounded;
-    }
   }
 }
 
-class _CardTitleRow extends StatelessWidget {
+class _CardTitle extends StatelessWidget {
   final String title;
   final String action;
 
-  const _CardTitleRow({
+  const _CardTitle({
     required this.title,
     required this.action,
   });
@@ -788,41 +407,20 @@ class _CardTitleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(width: 10),
-        Flexible(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  action,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.primary,
-                size: 22,
-              ),
-            ],
+        const Spacer(),
+        Text(
+          action,
+          style: const TextStyle(
+            color: AppColors.primary,
+            fontSize: 14,
           ),
         ),
       ],
@@ -830,92 +428,81 @@ class _CardTitleRow extends StatelessWidget {
   }
 }
 
-class _DashboardCard extends StatelessWidget {
-  final Widget child;
-
-  const _DashboardCard({
-    required this.child,
-  });
+class _EmptyDevices extends StatelessWidget {
+  const _EmptyDevices();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.card.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.cardBorder,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 20,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
-
-class _DividerLine extends StatelessWidget {
-  const _DividerLine();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 1,
-      color: AppColors.cardBorder.withValues(alpha: 0.7),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 28),
-      child: Column(
-        children: [
-          Icon(
-            icon,
-            color: AppColors.primary,
-            size: 38,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              Icons.phone_android_outlined,
               color: AppColors.textSecondary,
-              fontSize: 13,
-              height: 1.35,
+              size: 42,
             ),
-          ),
-        ],
+            SizedBox(height: 12),
+            Text(
+              'Подключённых устройств нет',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Рабочие телефоны появятся здесь после первого SMS или PUSH',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyEvents extends StatelessWidget {
+  const _EmptyEvents();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              Icons.notifications_off_outlined,
+              color: AppColors.textSecondary,
+              size: 42,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Событий нет',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Новые SMS и PUSH появятся здесь автоматически',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,41 +1,99 @@
-import 'package:permission_handler/permission_handler.dart';
+import 'device_pairing_service.dart';
+import 'native_main_phone_service.dart';
 
 class PermissionService {
+  final DevicePairingService _pairingService = DevicePairingService();
+  final NativeMainPhoneService _nativeService = const NativeMainPhoneService();
+
   Future<bool> requestSmsPermission() async {
-    final status = await Permission.sms.request();
-    return status.isGranted;
+    final canUseForwarding = await _canUseForwarding();
+
+    if (!canUseForwarding) {
+      return false;
+    }
+
+    return _nativeService.requestSmsPermissions();
   }
 
   Future<bool> requestNotificationPermission() async {
-    final status = await Permission.notification.request();
-    return status.isGranted;
+    final canUseForwarding = await _canUseForwarding();
+
+    if (!canUseForwarding) {
+      return false;
+    }
+
+    return _nativeService.requestPostNotificationPermission();
   }
 
   Future<bool> checkSmsPermission() async {
-    final status = await Permission.sms.status;
-    return status.isGranted;
+    final canUseForwarding = await _canUseForwarding();
+
+    if (!canUseForwarding) {
+      return false;
+    }
+
+    return _nativeService.hasSmsPermissions();
   }
 
   Future<bool> checkNotificationPermission() async {
-    final status = await Permission.notification.status;
-    return status.isGranted;
+    final canUseForwarding = await _canUseForwarding();
+
+    if (!canUseForwarding) {
+      return false;
+    }
+
+    final hasPostNotificationPermission =
+    await _nativeService.hasPostNotificationPermission();
+
+    final hasNotificationListener =
+    await _nativeService.isNotificationListenerEnabled();
+
+    return hasPostNotificationPermission && hasNotificationListener;
   }
 
-  Future<bool> requestMainPhonePermissions() async {
-    final smsGranted = await requestSmsPermission();
-    final notificationGranted = await requestNotificationPermission();
+  Future<bool> checkNotificationListenerPermission() async {
+    final canUseForwarding = await _canUseForwarding();
 
-    return smsGranted && notificationGranted;
+    if (!canUseForwarding) {
+      return false;
+    }
+
+    return _nativeService.isNotificationListenerEnabled();
   }
 
-  Future<bool> checkMainPhonePermissions() async {
-    final smsGranted = await checkSmsPermission();
-    final notificationGranted = await checkNotificationPermission();
+  Future<void> openNotificationListenerSettings() async {
+    final canUseForwarding = await _canUseForwarding();
 
-    return smsGranted && notificationGranted;
+    if (!canUseForwarding) {
+      return;
+    }
+
+    await _nativeService.openNotificationListenerSettings();
   }
 
-  Future<void> openAppSettingsPage() async {
-    await openAppSettings();
+  Future<bool> checkBatteryOptimizationDisabled() async {
+    final canUseForwarding = await _canUseForwarding();
+
+    if (!canUseForwarding) {
+      return false;
+    }
+
+    return _nativeService.isBatteryOptimizationDisabled();
+  }
+
+  Future<void> openBatteryOptimizationSettings() async {
+    final canUseForwarding = await _canUseForwarding();
+
+    if (!canUseForwarding) {
+      return;
+    }
+
+    await _nativeService.openBatteryOptimizationSettings();
+  }
+
+  Future<bool> _canUseForwarding() async {
+    final pairingState = await _pairingService.loadState();
+
+    return pairingState.isWorkerPhone && pairingState.isPaired;
   }
 }
