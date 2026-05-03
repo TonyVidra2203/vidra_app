@@ -18,10 +18,9 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 8),
           _buildPairingTile(context),
           const SizedBox(height: 24),
-
           _buildSectionTitle(context, 'Прочее'),
           const SizedBox(height: 8),
-          _buildAboutTile(context),
+          _buildAboutTile(),
         ],
       ),
     );
@@ -48,12 +47,12 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAboutTile(BuildContext context) {
-    return Card(
+  Widget _buildAboutTile() {
+    return const Card(
       child: ListTile(
-        leading: const Icon(Icons.info_outline),
-        title: const Text('О приложении'),
-        subtitle: const Text('VidRA SMS & PUSH Forwarder'),
+        leading: Icon(Icons.info_outline),
+        title: Text('О приложении'),
+        subtitle: Text('VidRA SMS & PUSH Forwarder'),
       ),
     );
   }

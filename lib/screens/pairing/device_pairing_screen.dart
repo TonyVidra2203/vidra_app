@@ -10,13 +10,16 @@ class DevicePairingScreen extends StatefulWidget {
 }
 
 class _DevicePairingScreenState extends State<DevicePairingScreen> {
-  final DevicePairingService _service = DevicePairingService();
-  final TextEditingController _deviceNameController = TextEditingController();
-  final TextEditingController _pairCodeController = TextEditingController();
+  final DevicePairingService service = DevicePairingService();
 
-  DevicePairingState _state = const DevicePairingState.empty();
-  bool _isLoading = true;
-  String _message = '';
+  final TextEditingController deviceNameController = TextEditingController();
+  final TextEditingController pairCodeController = TextEditingController();
+
+  DevicePairingState state = const DevicePairingState.empty();
+
+  bool isLoading = true;
+  bool isSaving = false;
+  String message = '';
 
   @override
   void initState() {
@@ -26,83 +29,134 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   @override
   void dispose() {
-    _deviceNameController.dispose();
-    _pairCodeController.dispose();
+    deviceNameController.dispose();
+    pairCodeController.dispose();
     super.dispose();
   }
 
   Future<void> _loadState() async {
-    final state = await _service.loadState();
+    final loadedState = await service.loadState();
 
     if (!mounted) return;
 
     setState(() {
-      _state = state;
-      _isLoading = false;
+      state = loadedState;
+      deviceNameController.text = loadedState.deviceName;
+      isLoading = false;
     });
   }
 
   Future<void> _createMainPhoneCode() async {
-    final state = await _service.createMainPhonePairCode(
-      deviceName: _deviceNameController.text,
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
+    final newState = await service.createMainPhonePairCode(
+      deviceName: deviceNameController.text,
     );
 
     if (!mounted) return;
 
     setState(() {
-      _state = state;
-      _message = 'Код создан. Введите его на рабочем телефоне.';
+      state = newState;
+      isSaving = false;
+      message = 'Код создан. Введите его на рабочем телефоне.';
     });
   }
 
   Future<void> _connectWorkerPhone() async {
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
     try {
-      final state = await _service.connectWorkerPhone(
-        deviceName: _deviceNameController.text,
-        pairCode: _pairCodeController.text,
+      final newState = await service.connectWorkerPhone(
+        deviceName: deviceNameController.text,
+        pairCode: pairCodeController.text,
       );
 
       if (!mounted) return;
 
       setState(() {
-        _state = state;
-        _message = 'Рабочий телефон привязан.';
+        state = newState;
+        isSaving = false;
+        message = 'Рабочий телефон привязан. SMS и PUSH будут отправляться автоматически.';
       });
     } on DevicePairingException catch (error) {
+      if (!mounted) return;
+
       setState(() {
-        _message = error.message;
+        isSaving = false;
+        message = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+        message = 'Не удалось привязать рабочий телефон.';
       });
     }
   }
 
   Future<void> _confirmWorkerPhone() async {
-    final state = await _service.confirmWorkerPhone(
-      workerDeviceName: 'Рабочий телефон',
-    );
-
-    if (!mounted) return;
-
     setState(() {
-      _state = state;
-      _message = 'Рабочий телефон подтверждён.';
+      isSaving = true;
+      message = '';
     });
+
+    try {
+      final newState = await service.confirmWorkerPhone(
+        workerDeviceName: 'Рабочий телефон',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        state = newState;
+        isSaving = false;
+        message = 'Связка подтверждена. Главный телефон готов получать события.';
+      });
+    } on DevicePairingException catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+        message = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+        message = 'Не удалось подтвердить связку.';
+      });
+    }
   }
 
   Future<void> _resetPairing() async {
-    await _service.resetPairing();
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
+    await service.resetPairing();
 
     if (!mounted) return;
 
     setState(() {
-      _state = const DevicePairingState.empty();
-      _message = 'Связка сброшена.';
-      _pairCodeController.clear();
+      state = const DevicePairingState.empty();
+      pairCodeController.clear();
+      isSaving = false;
+      message = 'Связка сброшена.';
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (isLoading) {
       return const Scaffold(
         body: Center(
           child: CircularProgressIndicator(),
@@ -119,19 +173,18 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         children: [
           _buildIntroCard(),
           const SizedBox(height: 16),
-          _buildDeviceNameField(),
-          const SizedBox(height: 16),
-          if (_state.status == DevicePairingStatus.notPaired) ...[
-            _buildRoleButtons(),
+          if (!state.isPaired) ...[
+            _buildDeviceNameField(),
+            const SizedBox(height: 16),
           ],
-          if (_state.status == DevicePairingStatus.waitingForWorker) ...[
+          if (state.status == DevicePairingStatus.notPaired) _buildRoleButtons(),
+          if (state.status == DevicePairingStatus.waitingForWorker)
             _buildMainPhoneCodeCard(),
+          if (state.status == DevicePairingStatus.paired) _buildPairedCard(),
+          if (message.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildMessage(),
           ],
-          if (_state.status == DevicePairingStatus.paired) ...[
-            _buildPairedCard(),
-          ],
-          const SizedBox(height: 16),
-          if (_message.isNotEmpty) _buildMessage(),
         ],
       ),
     );
@@ -142,9 +195,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          'Выберите роль телефона.\n\n'
-              'Главный телефон — получает сообщения и управляет настройками.\n'
-              'Рабочий телефон — стоит там, где нужна пересылка SMS и PUSH.',
+          'Свяжите два телефона один раз.\n\n'
+              'Главный телефон показывает код.\n'
+              'Рабочий телефон вводит этот код.\n\n'
+              'После связки SMS и PUSH будут передаваться автоматически, без ручного ввода URL.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),
@@ -153,40 +207,44 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   Widget _buildDeviceNameField() {
     return TextField(
-      controller: _deviceNameController,
+      controller: deviceNameController,
+      textInputAction: TextInputAction.done,
       decoration: const InputDecoration(
         labelText: 'Название этого телефона',
         hintText: 'Например: Магазин 1',
+        border: OutlineInputBorder(),
       ),
     );
   }
 
   Widget _buildRoleButtons() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _createMainPhoneCode,
-            child: const Text('Это главный телефон'),
-          ),
+        ElevatedButton.icon(
+          onPressed: isSaving ? null : _createMainPhoneCode,
+          icon: const Icon(Icons.phone_android),
+          label: Text(isSaving ? 'Создаю код...' : 'Это главный телефон'),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        const Divider(),
+        const SizedBox(height: 20),
         TextField(
-          controller: _pairCodeController,
+          controller: pairCodeController,
           keyboardType: TextInputType.number,
+          maxLength: 6,
           decoration: const InputDecoration(
             labelText: 'Код с главного телефона',
             hintText: 'Введите 6 цифр',
+            border: OutlineInputBorder(),
+            counterText: '',
           ),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: _connectWorkerPhone,
-            child: const Text('Это рабочий телефон'),
-          ),
+        OutlinedButton.icon(
+          onPressed: isSaving ? null : _connectWorkerPhone,
+          icon: const Icon(Icons.send_to_mobile),
+          label: Text(isSaving ? 'Привязываю...' : 'Это рабочий телефон'),
         ),
       ],
     );
@@ -195,30 +253,43 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   Widget _buildMainPhoneCodeCard() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           children: [
-            const Text('Код для рабочего телефона'),
-            const SizedBox(height: 12),
-            SelectableText(
-              _state.pairCode,
-              style: Theme.of(context).textTheme.headlineMedium,
+            const Icon(
+              Icons.qr_code_2,
+              size: 44,
             ),
             const SizedBox(height: 12),
             const Text(
-              'Откройте VidRA на рабочем телефоне и введите этот код.',
+              'Код для рабочего телефона',
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            SelectableText(
+              state.pairCode,
+              style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 6,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Откройте VidRA на рабочем телефоне, выберите “Это рабочий телефон” и введите этот код.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _confirmWorkerPhone,
-                child: const Text('Я ввёл код на рабочем телефоне'),
+                onPressed: isSaving ? null : _confirmWorkerPhone,
+                child: Text(
+                  isSaving ? 'Подтверждаю...' : 'Я ввёл код на рабочем телефоне',
+                ),
               ),
             ),
             TextButton(
-              onPressed: _resetPairing,
+              onPressed: isSaving ? null : _resetPairing,
               child: const Text('Сбросить связку'),
             ),
           ],
@@ -228,14 +299,18 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   }
 
   Widget _buildPairedCard() {
-    final roleText = _state.isMainPhone ? 'Главный телефон' : 'Рабочий телефон';
+    final roleText = state.isMainPhone ? 'Главный телефон' : 'Рабочий телефон';
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           children: [
-            const Icon(Icons.check_circle, size: 48),
+            const Icon(
+              Icons.check_circle,
+              size: 52,
+              color: Colors.green,
+            ),
             const SizedBox(height: 12),
             Text(
               'Телефон привязан',
@@ -243,11 +318,17 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             ),
             const SizedBox(height: 8),
             Text('Роль: $roleText'),
-            if (_state.pairedDeviceName.isNotEmpty)
-              Text('Связан с: ${_state.pairedDeviceName}'),
-            const SizedBox(height: 16),
+            if (state.pairCode.isNotEmpty) Text('Код связки: ${state.pairCode}'),
+            if (state.pairedDeviceName.isNotEmpty)
+              Text('Связан с: ${state.pairedDeviceName}'),
+            const SizedBox(height: 14),
+            const Text(
+              'Теперь приложение использует скрытый канал передачи. Пользователю не нужно вводить Relay URL вручную.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 18),
             TextButton(
-              onPressed: _resetPairing,
+              onPressed: isSaving ? null : _resetPairing,
               child: const Text('Сбросить связку'),
             ),
           ],
@@ -257,10 +338,15 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   }
 
   Widget _buildMessage() {
-    return Text(
-      _message,
-      textAlign: TextAlign.center,
-      style: Theme.of(context).textTheme.bodyMedium,
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ),
     );
   }
 }

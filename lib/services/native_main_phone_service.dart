@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NativeMainPhoneService {
   static const MethodChannel _channel = MethodChannel(
@@ -11,6 +13,9 @@ class NativeMainPhoneService {
   static const EventChannel _eventsChannel = EventChannel(
     'vidra/native_events',
   );
+
+  static const String _relayUrlKey = 'sender_relay_url';
+  static const String _relayApiKeyKey = 'sender_relay_api_key';
 
   const NativeMainPhoneService();
 
@@ -59,7 +64,7 @@ class NativeMainPhoneService {
   Future<MainPhoneNativeStatus> getStatus() async {
     try {
       final value = await _channel.invokeMethod<String>('getMainPhoneStatus');
-      final map = jsonDecode(value ?? '{}') as Map<String, dynamic>;
+      final map = jsonDecode(value ?? '{}') as Map;
 
       return MainPhoneNativeStatus.fromJson(map);
     } catch (_) {
@@ -70,7 +75,7 @@ class NativeMainPhoneService {
   Future<MainPhoneFilterSettings> getFilterSettings() async {
     try {
       final value = await _channel.invokeMethod<String>('getFilterSettings');
-      final map = jsonDecode(value ?? '{}') as Map<String, dynamic>;
+      final map = jsonDecode(value ?? '{}') as Map;
 
       return MainPhoneFilterSettings.fromJson(map);
     } catch (_) {
@@ -83,11 +88,96 @@ class NativeMainPhoneService {
   }
 
   Future<List<NativeForwardedMessage>> getMessages() async {
+    final localMessages = await _getLocalMessages();
+    final relayMessages = await _getRelayMessages();
+
+    final messages = [
+      ...relayMessages,
+      ...localMessages,
+    ];
+
+    messages.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
+
+    return _removeDuplicates(messages);
+  }
+
+  Future<void> clearMessages() async {
+    await _channel.invokeMethod('clearNativeMessages');
+  }
+
+  Future<bool> _invokeBool(String method) async {
+    try {
+      return await _channel.invokeMethod<bool>(method) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<NativeForwardedMessage>> _getLocalMessages() async {
     try {
       final value = await _channel.invokeMethod<String>('getNativeMessages');
-      final list = jsonDecode(value ?? '[]') as List<dynamic>;
 
-      final messages = list
+      return _parseMessages(value ?? '[]');
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<NativeForwardedMessage>> _getRelayMessages() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final relayUrl = prefs.getString(_relayUrlKey)?.trim() ?? '';
+    final relayApiKey = prefs.getString(_relayApiKeyKey)?.trim() ?? '';
+
+    if (relayUrl.isEmpty) {
+      return [];
+    }
+
+    HttpClient? client;
+
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+
+      final request = await client.getUrl(Uri.parse(relayUrl)).timeout(
+        const Duration(seconds: 8),
+      );
+
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.userAgentHeader, 'VidRA-Android');
+
+      if (relayApiKey.isNotEmpty) {
+        request.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer $relayApiKey',
+        );
+        request.headers.set('X-Api-Key', relayApiKey);
+      }
+
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return [];
+      }
+
+      final body = await response.transform(utf8.decoder).join();
+
+      return _parseMessages(body);
+    } catch (_) {
+      return [];
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  List<NativeForwardedMessage> _parseMessages(String rawValue) {
+    try {
+      final decoded = jsonDecode(rawValue);
+      final list = _extractMessageList(decoded);
+
+      return list
           .whereType<Map>()
           .map((item) {
         return NativeForwardedMessage.fromJson(
@@ -102,25 +192,46 @@ class NativeMainPhoneService {
                 message.app.isNotEmpty);
       })
           .toList();
-
-      messages.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
-
-      return _removeDuplicates(messages);
     } catch (_) {
       return [];
     }
   }
 
-  Future<void> clearMessages() async {
-    await _channel.invokeMethod('clearNativeMessages');
-  }
-
-  Future<bool> _invokeBool(String method) async {
-    try {
-      return await _channel.invokeMethod<bool>(method) ?? false;
-    } catch (_) {
-      return false;
+  List _extractMessageList(Object? decoded) {
+    if (decoded is List) {
+      return decoded;
     }
+
+    if (decoded is Map) {
+      final messages = decoded['messages'];
+      if (messages is List) {
+        return messages;
+      }
+
+      final events = decoded['events'];
+      if (events is List) {
+        return events;
+      }
+
+      final data = decoded['data'];
+      if (data is List) {
+        return data;
+      }
+
+      if (data is Map) {
+        final dataMessages = data['messages'];
+        if (dataMessages is List) {
+          return dataMessages;
+        }
+
+        final dataEvents = data['events'];
+        if (dataEvents is List) {
+          return dataEvents;
+        }
+      }
+    }
+
+    return [];
   }
 
   List<NativeForwardedMessage> _removeDuplicates(
@@ -161,7 +272,7 @@ class MainPhoneFilterSettings {
     this.blacklist = true,
   });
 
-  factory MainPhoneFilterSettings.fromJson(Map<String, dynamic> json) {
+  factory MainPhoneFilterSettings.fromJson(Map json) {
     return MainPhoneFilterSettings(
       verificationCodes: json['verificationCodes'] != false,
       bankMessages: json['bankMessages'] != false,
@@ -172,7 +283,7 @@ class MainPhoneFilterSettings {
     );
   }
 
-  Map<String, dynamic> toJson() {
+  Map<String, bool> toJson() {
     return {
       'verificationCodes': verificationCodes,
       'bankMessages': bankMessages,
@@ -233,7 +344,7 @@ class MainPhoneNativeStatus {
     this.pushCount = 0,
   });
 
-  factory MainPhoneNativeStatus.fromJson(Map<String, dynamic> json) {
+  factory MainPhoneNativeStatus.fromJson(Map json) {
     return MainPhoneNativeStatus(
       smsPermission: json['smsPermission'] == true,
       postNotificationPermission: json['postNotificationPermission'] == true,
@@ -356,6 +467,10 @@ class NativeForwardedMessage {
   }
 
   String get dedupeKey {
+    if (id.trim().isNotEmpty) {
+      return id.trim();
+    }
+
     return [
       type.trim().toLowerCase(),
       sender.trim().toLowerCase(),
@@ -363,6 +478,7 @@ class NativeForwardedMessage {
       packageName.trim().toLowerCase(),
       title.trim().toLowerCase(),
       text.trim().toLowerCase(),
+      receivedAt.toString(),
     ].join('|');
   }
 }

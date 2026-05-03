@@ -1,10 +1,10 @@
-import 'dart:math';
-
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SenderSettingsService {
-  static const MethodChannel _channel = MethodChannel('vidra/android_permissions');
+  static const MethodChannel _channel = MethodChannel(
+    'vidra/android_permissions',
+  );
 
   static const String _smsForwardingKey = 'sender_sms_forwarding';
   static const String _pushForwardingKey = 'sender_push_forwarding';
@@ -20,27 +20,16 @@ class SenderSettingsService {
   Future<SenderSettingsState> load() async {
     final prefs = await SharedPreferences.getInstance();
 
-    String? deviceId = prefs.getString(_deviceIdKey);
-
-    if (deviceId == null || deviceId.isEmpty) {
-      deviceId = _generateDeviceId();
-      await prefs.setString(_deviceIdKey, deviceId);
-    }
-
-    final settings = SenderSettingsState(
+    return SenderSettingsState(
       smsForwarding: prefs.getBool(_smsForwardingKey) ?? true,
       pushForwarding: prefs.getBool(_pushForwardingKey) ?? true,
       backgroundMode: prefs.getBool(_backgroundModeKey) ?? true,
       onlyWithInternet: prefs.getBool(_onlyWithInternetKey) ?? false,
       deviceName: prefs.getString(_deviceNameKey) ?? 'Рабочий телефон',
-      deviceId: deviceId,
+      deviceId: prefs.getString(_deviceIdKey) ?? '',
       relayUrl: prefs.getString(_relayUrlKey) ?? '',
       relayApiKey: prefs.getString(_relayApiKeyKey) ?? '',
     );
-
-    await _saveNativeSettings(settings);
-
-    return settings;
   }
 
   Future<void> save(SenderSettingsState settings) async {
@@ -50,35 +39,29 @@ class SenderSettingsService {
     await prefs.setBool(_pushForwardingKey, settings.pushForwarding);
     await prefs.setBool(_backgroundModeKey, settings.backgroundMode);
     await prefs.setBool(_onlyWithInternetKey, settings.onlyWithInternet);
-    await prefs.setString(_deviceNameKey, settings.deviceName.trim());
-    await prefs.setString(_deviceIdKey, settings.deviceId.trim());
-    await prefs.setString(_relayUrlKey, settings.relayUrl.trim());
-    await prefs.setString(_relayApiKeyKey, settings.relayApiKey.trim());
+    await prefs.setString(_deviceNameKey, settings.deviceName);
+    await prefs.setString(_deviceIdKey, settings.deviceId);
+    await prefs.setString(_relayUrlKey, settings.relayUrl);
+    await prefs.setString(_relayApiKeyKey, settings.relayApiKey);
 
     await _saveNativeSettings(settings);
   }
 
   Future<void> _saveNativeSettings(SenderSettingsState settings) async {
     try {
-      await _channel.invokeMethod<void>('saveSenderSettings', {
+      await _channel.invokeMethod('saveSenderSettings', {
         'smsForwarding': settings.smsForwarding,
         'pushForwarding': settings.pushForwarding,
         'backgroundMode': settings.backgroundMode,
         'onlyWithInternet': settings.onlyWithInternet,
-        'deviceName': settings.deviceName.trim(),
-        'deviceId': settings.deviceId.trim(),
-        'relayUrl': settings.relayUrl.trim(),
-        'relayApiKey': settings.relayApiKey.trim(),
-      }).timeout(const Duration(seconds: 3));
-    } catch (_) {}
-  }
-
-  String _generateDeviceId() {
-    final rand = Random.secure();
-    final time = DateTime.now().millisecondsSinceEpoch;
-    final randomPart = rand.nextInt(999999).toString().padLeft(6, '0');
-
-    return 'vidra_$time$randomPart';
+        'deviceName': settings.deviceName,
+        'deviceId': settings.deviceId,
+        'relayUrl': settings.relayUrl,
+        'relayApiKey': settings.relayApiKey,
+      });
+    } catch (_) {
+      // Flutter-настройки сохранены. Native-слой обновится после следующего сохранения.
+    }
   }
 }
 

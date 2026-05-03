@@ -89,7 +89,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _loadMessages();
+      _loadMessages(showLoader: false);
       _listenMessageUpdates();
       _startAutoRefresh();
       return;
@@ -110,14 +110,14 @@ class _MessagesScreenState extends State<MessagesScreen>
     messageUpdatesSubscription?.cancel();
 
     messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
-      _loadMessages();
+      _loadMessages(showLoader: false);
     });
   }
 
   void _startAutoRefresh() {
     refreshTimer?.cancel();
 
-    refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _loadMessages(showLoader: false);
     });
   }
@@ -129,24 +129,30 @@ class _MessagesScreenState extends State<MessagesScreen>
 
     isRefreshing = true;
 
-    final nativeMessages = await nativeService.getMessages();
+    try {
+      final nativeMessages = await nativeService.getMessages();
 
-    if (!mounted) {
-      isRefreshing = false;
-      return;
-    }
+      if (!mounted) {
+        return;
+      }
 
-    final newMessages = nativeMessages.map(_mapNativeMessage).toList();
+      final newMessages = nativeMessages.map(_mapNativeMessage).toList();
 
-    setState(() {
-      messages = newMessages;
+      setState(() {
+        messages = newMessages;
+        isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
 
       if (showLoader || isLoading) {
-        isLoading = false;
+        setState(() => isLoading = false);
       }
-    });
-
-    isRefreshing = false;
+    } finally {
+      isRefreshing = false;
+    }
   }
 
   MessageModel _mapNativeMessage(NativeForwardedMessage message) {
@@ -156,7 +162,7 @@ class _MessagesScreenState extends State<MessagesScreen>
       sender: message.displayTitle,
       text: message.displaySubtitle,
       deviceName: message.deviceName.isEmpty
-          ? 'Главный телефон'
+          ? 'Рабочий телефон'
           : message.deviceName,
       time: _formatTime(date),
       type: message.isSms ? MessageType.sms : MessageType.push,
@@ -196,7 +202,7 @@ class _MessagesScreenState extends State<MessagesScreen>
 
   Future<void> _clearMessages() async {
     await nativeService.clearMessages();
-    await _loadMessages();
+    await _loadMessages(showLoader: false);
   }
 
   @override
@@ -213,17 +219,13 @@ class _MessagesScreenState extends State<MessagesScreen>
               onSearchTap: toggleSearch,
               onClearTap: _clearMessages,
               onSearchChanged: (value) {
-                setState(() {
-                  searchQuery = value;
-                });
+                setState(() => searchQuery = value);
               },
             ),
             MessageFilterBar(
               selectedFilter: selectedFilter,
               onChanged: (filter) {
-                setState(() {
-                  selectedFilter = filter;
-                });
+                setState(() => selectedFilter = filter);
               },
             ),
             Expanded(
@@ -245,7 +247,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   }
 }
 
-class _Header extends StatelessWidget {
+class _Header extends StatefulWidget {
   final bool isSearchOpen;
   final bool hasMessages;
   final String searchQuery;
@@ -263,8 +265,41 @@ class _Header extends StatelessWidget {
   });
 
   @override
+  State<_Header> createState() => _HeaderState();
+}
+
+class _HeaderState extends State<_Header> {
+  late final TextEditingController searchController;
+
+  @override
+  void initState() {
+    super.initState();
+
+    searchController = TextEditingController(text: widget.searchQuery);
+  }
+
+  @override
+  void didUpdateWidget(covariant _Header oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.searchQuery != searchController.text) {
+      searchController.text = widget.searchQuery;
+      searchController.selection = TextSelection.collapsed(
+        offset: searchController.text.length,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (isSearchOpen) {
+    if (widget.isSearchOpen) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
         child: Row(
@@ -272,11 +307,8 @@ class _Header extends StatelessWidget {
             Expanded(
               child: TextField(
                 autofocus: true,
-                controller: TextEditingController(text: searchQuery)
-                  ..selection = TextSelection.collapsed(
-                    offset: searchQuery.length,
-                  ),
-                onChanged: onSearchChanged,
+                controller: searchController,
+                onChanged: widget.onSearchChanged,
                 style: const TextStyle(color: AppColors.textPrimary),
                 decoration: InputDecoration(
                   hintText: 'Поиск сообщений...',
@@ -304,7 +336,7 @@ class _Header extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             GestureDetector(
-              onTap: onSearchTap,
+              onTap: widget.onSearchTap,
               child: const Icon(
                 Icons.close,
                 color: AppColors.primary,
@@ -336,18 +368,18 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          if (hasMessages)
+          if (widget.hasMessages)
             GestureDetector(
-              onTap: onClearTap,
+              onTap: widget.onClearTap,
               child: const Icon(
                 Icons.delete_outline,
                 color: AppColors.danger,
                 size: 27,
               ),
             ),
-          if (hasMessages) const SizedBox(width: 16),
+          if (widget.hasMessages) const SizedBox(width: 16),
           GestureDetector(
-            onTap: onSearchTap,
+            onTap: widget.onSearchTap,
             child: const Icon(
               Icons.search,
               color: AppColors.primary,

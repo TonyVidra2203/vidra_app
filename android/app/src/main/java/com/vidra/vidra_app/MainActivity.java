@@ -31,7 +31,6 @@ public class MainActivity extends FlutterActivity {
 
     private static final String ACTION_MESSAGES_UPDATED =
             "com.vidra.vidra_app.MESSAGES_UPDATED";
-
     private static final String EVENT_MESSAGES_UPDATED = "messagesUpdated";
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
@@ -218,7 +217,11 @@ public class MainActivity extends FlutterActivity {
         IntentFilter filter = new IntentFilter(ACTION_MESSAGES_UPDATED);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(nativeEventsReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            registerReceiver(
+                    nativeEventsReceiver,
+                    filter,
+                    Context.RECEIVER_NOT_EXPORTED
+            );
         } else {
             registerReceiver(nativeEventsReceiver, filter);
         }
@@ -251,10 +254,14 @@ public class MainActivity extends FlutterActivity {
     }
 
     private boolean hasSmsPermissions() {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
-                == PackageManager.PERMISSION_GRANTED
-                && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
-                == PackageManager.PERMISSION_GRANTED;
+        return ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECEIVE_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void requestSmsPermissions() {
@@ -326,7 +333,8 @@ public class MainActivity extends FlutterActivity {
                 return true;
             }
 
-            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            PowerManager powerManager =
+                    (PowerManager) getSystemService(Context.POWER_SERVICE);
 
             return powerManager != null
                     && powerManager.isIgnoringBatteryOptimizations(getPackageName());
@@ -338,7 +346,9 @@ public class MainActivity extends FlutterActivity {
     private void openBatteryOptimizationSettings() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                Intent intent = new Intent(
+                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                );
                 intent.setData(Uri.parse("package:" + getPackageName()));
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
@@ -348,7 +358,9 @@ public class MainActivity extends FlutterActivity {
             openAppSettings();
         } catch (Exception e) {
             try {
-                Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                Intent intent = new Intent(
+                        Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+                );
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
             } catch (Exception ignored) {
@@ -377,14 +389,20 @@ public class MainActivity extends FlutterActivity {
             String relayUrl,
             String relayApiKey
     ) {
-        SharedPreferences prefs = getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences(
+                SETTINGS_PREFS,
+                Context.MODE_PRIVATE
+        );
 
         prefs.edit()
                 .putBoolean(KEY_SMS_FORWARDING, smsForwarding != null ? smsForwarding : true)
                 .putBoolean(KEY_PUSH_FORWARDING, pushForwarding != null ? pushForwarding : true)
                 .putBoolean(KEY_BACKGROUND_MODE, backgroundMode != null ? backgroundMode : true)
                 .putBoolean(KEY_ONLY_WITH_INTERNET, onlyWithInternet != null && onlyWithInternet)
-                .putString(KEY_DEVICE_NAME, cleanOrDefault(deviceName, Build.MANUFACTURER + " " + Build.MODEL))
+                .putString(
+                        KEY_DEVICE_NAME,
+                        cleanOrDefault(deviceName, Build.MANUFACTURER + " " + Build.MODEL)
+                )
                 .putString(KEY_DEVICE_ID, cleanOrDefault(deviceId, ""))
                 .putString(KEY_RELAY_URL, cleanOrDefault(relayUrl, ""))
                 .putString(KEY_RELAY_API_KEY, cleanOrDefault(relayApiKey, ""))
@@ -399,13 +417,25 @@ public class MainActivity extends FlutterActivity {
             Boolean cryptoSpam,
             Boolean blacklist
     ) {
-        SharedPreferences prefs = getSharedPreferences(FILTERS_PREFS, Context.MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences(
+                FILTERS_PREFS,
+                Context.MODE_PRIVATE
+        );
 
         prefs.edit()
-                .putBoolean(KEY_VERIFICATION_CODES, verificationCodes != null ? verificationCodes : true)
-                .putBoolean(KEY_BANK_MESSAGES, bankMessages != null ? bankMessages : true)
+                .putBoolean(
+                        KEY_VERIFICATION_CODES,
+                        verificationCodes != null ? verificationCodes : true
+                )
+                .putBoolean(
+                        KEY_BANK_MESSAGES,
+                        bankMessages != null ? bankMessages : true
+                )
                 .putBoolean(KEY_AD_SMS, adSms != null && adSms)
-                .putBoolean(KEY_INTERNATIONAL_NUMBERS, internationalNumbers != null ? internationalNumbers : true)
+                .putBoolean(
+                        KEY_INTERNATIONAL_NUMBERS,
+                        internationalNumbers != null ? internationalNumbers : true
+                )
                 .putBoolean(KEY_CRYPTO_SPAM, cryptoSpam != null && cryptoSpam)
                 .putBoolean(KEY_BLACKLIST, blacklist != null ? blacklist : true)
                 .apply();
@@ -415,12 +445,21 @@ public class MainActivity extends FlutterActivity {
         JSONObject filters = new JSONObject();
 
         try {
-            SharedPreferences prefs = getSharedPreferences(FILTERS_PREFS, Context.MODE_PRIVATE);
+            SharedPreferences prefs = getSharedPreferences(
+                    FILTERS_PREFS,
+                    Context.MODE_PRIVATE
+            );
 
-            filters.put(KEY_VERIFICATION_CODES, prefs.getBoolean(KEY_VERIFICATION_CODES, true));
+            filters.put(
+                    KEY_VERIFICATION_CODES,
+                    prefs.getBoolean(KEY_VERIFICATION_CODES, true)
+            );
             filters.put(KEY_BANK_MESSAGES, prefs.getBoolean(KEY_BANK_MESSAGES, true));
             filters.put(KEY_AD_SMS, prefs.getBoolean(KEY_AD_SMS, false));
-            filters.put(KEY_INTERNATIONAL_NUMBERS, prefs.getBoolean(KEY_INTERNATIONAL_NUMBERS, true));
+            filters.put(
+                    KEY_INTERNATIONAL_NUMBERS,
+                    prefs.getBoolean(KEY_INTERNATIONAL_NUMBERS, true)
+            );
             filters.put(KEY_CRYPTO_SPAM, prefs.getBoolean(KEY_CRYPTO_SPAM, false));
             filters.put(KEY_BLACKLIST, prefs.getBoolean(KEY_BLACKLIST, true));
         } catch (Exception ignored) {
@@ -433,23 +472,57 @@ public class MainActivity extends FlutterActivity {
         JSONObject status = new JSONObject();
 
         try {
-            SharedPreferences settings = getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE);
-            SharedPreferences storage = getSharedPreferences(STORAGE_PREFS, Context.MODE_PRIVATE);
+            SharedPreferences settings = getSharedPreferences(
+                    SETTINGS_PREFS,
+                    Context.MODE_PRIVATE
+            );
+            SharedPreferences storage = getSharedPreferences(
+                    STORAGE_PREFS,
+                    Context.MODE_PRIVATE
+            );
 
-            JSONArray smsMessages = new JSONArray(storage.getString(SMS_LIST_KEY, "[]"));
-            JSONArray pushMessages = new JSONArray(storage.getString(PUSH_LIST_KEY, "[]"));
+            JSONArray smsMessages = new JSONArray(
+                    storage.getString(SMS_LIST_KEY, "[]")
+            );
+            JSONArray pushMessages = new JSONArray(
+                    storage.getString(PUSH_LIST_KEY, "[]")
+            );
 
             status.put("smsPermission", hasSmsPermissions());
             status.put("postNotificationPermission", hasPostNotificationPermission());
             status.put("notificationListener", isNotificationListenerEnabled());
-            status.put("batteryOptimizationDisabled", isBatteryOptimizationDisabled());
-            status.put("smsForwarding", settings.getBoolean(KEY_SMS_FORWARDING, true));
-            status.put("pushForwarding", settings.getBoolean(KEY_PUSH_FORWARDING, true));
-            status.put("backgroundMode", settings.getBoolean(KEY_BACKGROUND_MODE, true));
-            status.put("onlyWithInternet", settings.getBoolean(KEY_ONLY_WITH_INTERNET, false));
-            status.put("deviceName", settings.getString(KEY_DEVICE_NAME, Build.MANUFACTURER + " " + Build.MODEL));
+            status.put(
+                    "batteryOptimizationDisabled",
+                    isBatteryOptimizationDisabled()
+            );
+            status.put(
+                    "smsForwarding",
+                    settings.getBoolean(KEY_SMS_FORWARDING, true)
+            );
+            status.put(
+                    "pushForwarding",
+                    settings.getBoolean(KEY_PUSH_FORWARDING, true)
+            );
+            status.put(
+                    "backgroundMode",
+                    settings.getBoolean(KEY_BACKGROUND_MODE, true)
+            );
+            status.put(
+                    "onlyWithInternet",
+                    settings.getBoolean(KEY_ONLY_WITH_INTERNET, false)
+            );
+            status.put(
+                    "deviceName",
+                    settings.getString(
+                            KEY_DEVICE_NAME,
+                            Build.MANUFACTURER + " " + Build.MODEL
+                    )
+            );
             status.put("deviceId", settings.getString(KEY_DEVICE_ID, ""));
-            status.put("relayConfigured", !settings.getString(KEY_RELAY_URL, "").trim().isEmpty());
+            status.put(
+                    "relayConfigured",
+                    !settings.getString(KEY_RELAY_URL, "").trim().isEmpty()
+            );
             status.put("smsCount", smsMessages.length());
             status.put("pushCount", pushMessages.length());
         } catch (Exception ignored) {
@@ -462,10 +535,17 @@ public class MainActivity extends FlutterActivity {
         JSONArray messages = new JSONArray();
 
         try {
-            SharedPreferences storage = getSharedPreferences(STORAGE_PREFS, Context.MODE_PRIVATE);
+            SharedPreferences storage = getSharedPreferences(
+                    STORAGE_PREFS,
+                    Context.MODE_PRIVATE
+            );
 
-            JSONArray smsMessages = new JSONArray(storage.getString(SMS_LIST_KEY, "[]"));
-            JSONArray pushMessages = new JSONArray(storage.getString(PUSH_LIST_KEY, "[]"));
+            JSONArray smsMessages = new JSONArray(
+                    storage.getString(SMS_LIST_KEY, "[]")
+            );
+            JSONArray pushMessages = new JSONArray(
+                    storage.getString(PUSH_LIST_KEY, "[]")
+            );
 
             for (int i = 0; i < smsMessages.length(); i++) {
                 messages.put(smsMessages.getJSONObject(i));

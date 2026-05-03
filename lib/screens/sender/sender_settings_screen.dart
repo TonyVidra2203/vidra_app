@@ -121,55 +121,11 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Рабочее устройство',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Название будет отображаться в личном кабинете и на главном телефоне.',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: deviceNameController,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: 'Рабочий телефон',
-                            labelText: 'Название устройства',
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 46,
-                          child: ElevatedButton(
-                            onPressed: isSaving ? null : _saveDeviceName,
-                            child: Text(
-                              isSaving ? 'Сохраняю...' : 'Сохранить',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildDeviceCard(),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка SMS',
-                    subtitle: 'Передавать входящие SMS в аккаунт VidRA',
+                    subtitle: 'Передавать входящие SMS на главный телефон',
                     value: settings.smsForwarding,
                     onChanged: (value) {
                       _updateSettings(
@@ -180,7 +136,7 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка PUSH',
-                    subtitle: 'Передавать уведомления приложений в аккаунт VidRA',
+                    subtitle: 'Передавать уведомления приложений на главный телефон',
                     value: settings.pushForwarding,
                     onChanged: (value) {
                       _updateSettings(
@@ -219,6 +175,54 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
       bottomNavigationBar: SenderBottomNavBar(
         currentIndex: 1,
         onTap: (index) => _onNavTap(context, index),
+      ),
+    );
+  }
+
+  Widget _buildDeviceCard() {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Рабочее устройство',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Название будет отображаться на главном телефоне.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: deviceNameController,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+            ),
+            decoration: const InputDecoration(
+              hintText: 'Рабочий телефон',
+              labelText: 'Название устройства',
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: ElevatedButton(
+              onPressed: isSaving ? null : _saveDeviceName,
+              child: Text(
+                isSaving ? 'Сохраняю...' : 'Сохранить',
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
