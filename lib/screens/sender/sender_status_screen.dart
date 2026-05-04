@@ -4,6 +4,7 @@ import '../../core/constants/app_colors.dart';
 import '../../services/native_main_phone_service.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
+import '../pairing/device_pairing_screen.dart';
 import 'sender_permissions_screen.dart';
 import 'sender_settings_screen.dart';
 import 'widgets/sender_bottom_nav_bar.dart';
@@ -28,15 +29,13 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   );
 
   MainPhoneNativeStatus nativeStatus = const MainPhoneNativeStatus();
-  List<NativeForwardedMessage> messages = <NativeForwardedMessage>[];
-
+  List<NativeForwardedMessage> messages = [];
   bool isLoading = true;
 
   bool get hasActiveForwarding =>
       settings.smsForwarding || settings.pushForwarding;
 
-  bool get isSmsReady =>
-      !settings.smsForwarding || nativeStatus.smsPermission;
+  bool get isSmsReady => !settings.smsForwarding || nativeStatus.smsPermission;
 
   bool get isPushReady =>
       !settings.pushForwarding || nativeStatus.notificationListener;
@@ -95,6 +94,21 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     await _loadStatus();
   }
 
+  Future<void> _openPairingScreen() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const DevicePairingScreen(),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    await _loadStatus();
+  }
+
   void _onNavTap(BuildContext context, int index) {
     if (index == 0) {
       return;
@@ -120,11 +134,11 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     }
 
     if (!isRelayReady) {
-      return 'Не указан сервер';
+      return 'Рабочий телефон не привязан';
     }
 
     if (isReady) {
-      return 'Главный телефон работает';
+      return 'Рабочий телефон подключён';
     }
 
     return 'Требуется настройка';
@@ -136,11 +150,11 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     }
 
     if (!isRelayReady) {
-      return 'Укажи адрес сервера в настройках передачи';
+      return 'Подключи этот телефон к главному через код связки';
     }
 
     if (isReady) {
-      return 'Android принимает SMS/PUSH и готов отправлять их на сервер';
+      return 'Android принимает SMS/PUSH и отправляет их на главный телефон';
     }
 
     return 'Проверь разрешения Android и фоновую работу';
@@ -164,7 +178,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     }
 
     if (!hasActiveForwarding || !isRelayReady) {
-      return Icons.warning_rounded;
+      return Icons.link_off;
     }
 
     return Icons.error;
@@ -195,6 +209,12 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
                       subtitle: _mainStatusSubtitle(),
                       color: _mainStatusColor(),
                       icon: _mainStatusIcon(),
+                    ),
+                    const SizedBox(height: 16),
+                    _PairingCard(
+                      isConnected: isRelayReady,
+                      relayUrl: settings.relayUrl,
+                      onTap: _openPairingScreen,
                     ),
                     const SizedBox(height: 16),
                     _StatusGroupCard(
@@ -243,10 +263,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
                           isReady: settings.pushForwarding,
                         ),
                         _StatusRow(
-                          title: 'Сервер',
+                          title: 'Связка с главным телефоном',
                           subtitle: nativeStatus.relayConfigured
-                              ? 'Адрес сервера сохранён'
-                              : 'Адрес сервера не указан',
+                              ? 'Адрес главного телефона сохранён'
+                              : 'Рабочий телефон ещё не подключён',
                           isReady: nativeStatus.relayConfigured,
                         ),
                         _StatusRow(
@@ -301,7 +321,7 @@ class _Header extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
       child: Center(
         child: Text(
-          'Главный телефон',
+          'Рабочий телефон',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 22,
@@ -357,6 +377,92 @@ class _MainStatusCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PairingCard extends StatelessWidget {
+  final bool isConnected;
+  final String relayUrl;
+  final VoidCallback onTap;
+
+  const _PairingCard({
+    required this.isConnected,
+    required this.relayUrl,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: AppColors.primary.withOpacity(0.14),
+                child: Icon(
+                  isConnected ? Icons.link : Icons.phonelink_setup,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isConnected
+                          ? 'Подключение к главному активно'
+                          : 'Подключить к главному телефону',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isConnected
+                          ? 'SMS и PUSH будут уходить на связанный главный телефон'
+                          : 'Введи код связки и адрес сервера с главного телефона',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (isConnected && relayUrl.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              relayUrl.trim(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: onTap,
+              icon: Icon(isConnected ? Icons.settings : Icons.link),
+              label: Text(
+                isConnected ? 'Управлять связкой' : 'Подключить телефон',
+              ),
             ),
           ),
         ],
@@ -566,7 +672,7 @@ class _MessagesCard extends StatelessWidget {
           const SizedBox(height: 8),
           if (messages.isEmpty)
             const Text(
-              'Пока нет SMS или PUSH. После входящего события оно появится здесь.',
+              'Пока нет SMS или PUSH.\nПосле входящего события оно появится здесь.',
               style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 12,
