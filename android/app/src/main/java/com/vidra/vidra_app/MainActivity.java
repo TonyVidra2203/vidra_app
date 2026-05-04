@@ -49,7 +49,8 @@ public class MainActivity extends FlutterActivity {
     private static final String KEY_VERIFICATION_CODES = "verificationCodes";
     private static final String KEY_BANK_MESSAGES = "bankMessages";
     private static final String KEY_AD_SMS = "adSms";
-    private static final String KEY_INTERNATIONAL_NUMBERS = "internationalNumbers";
+    private static final String KEY_INTERNATIONAL_NUMBERS =
+            "internationalNumbers";
     private static final String KEY_CRYPTO_SPAM = "cryptoSpam";
     private static final String KEY_BLACKLIST = "blacklist";
 
@@ -119,6 +120,11 @@ public class MainActivity extends FlutterActivity {
 
                 case "openAppSettings":
                     openAppSettings();
+                    result.success(null);
+                    break;
+
+                case "moveAppToBackground":
+                    moveTaskToBack(true);
                     result.success(null);
                     break;
 
@@ -311,7 +317,8 @@ public class MainActivity extends FlutterActivity {
                 return false;
             }
 
-            return enabledListeners.toLowerCase().contains(packageName.toLowerCase());
+            return enabledListeners.toLowerCase()
+                    .contains(packageName.toLowerCase());
         } catch (Exception e) {
             return false;
         }
@@ -395,13 +402,28 @@ public class MainActivity extends FlutterActivity {
         );
 
         prefs.edit()
-                .putBoolean(KEY_SMS_FORWARDING, smsForwarding != null ? smsForwarding : true)
-                .putBoolean(KEY_PUSH_FORWARDING, pushForwarding != null ? pushForwarding : true)
-                .putBoolean(KEY_BACKGROUND_MODE, backgroundMode != null ? backgroundMode : true)
-                .putBoolean(KEY_ONLY_WITH_INTERNET, onlyWithInternet != null && onlyWithInternet)
+                .putBoolean(
+                        KEY_SMS_FORWARDING,
+                        smsForwarding != null ? smsForwarding : true
+                )
+                .putBoolean(
+                        KEY_PUSH_FORWARDING,
+                        pushForwarding != null ? pushForwarding : true
+                )
+                .putBoolean(
+                        KEY_BACKGROUND_MODE,
+                        backgroundMode != null ? backgroundMode : true
+                )
+                .putBoolean(
+                        KEY_ONLY_WITH_INTERNET,
+                        onlyWithInternet != null && onlyWithInternet
+                )
                 .putString(
                         KEY_DEVICE_NAME,
-                        cleanOrDefault(deviceName, Build.MANUFACTURER + " " + Build.MODEL)
+                        cleanOrDefault(
+                                deviceName,
+                                Build.MANUFACTURER + " " + Build.MODEL
+                        )
                 )
                 .putString(KEY_DEVICE_ID, cleanOrDefault(deviceId, ""))
                 .putString(KEY_RELAY_URL, cleanOrDefault(relayUrl, ""))
@@ -454,13 +476,19 @@ public class MainActivity extends FlutterActivity {
                     KEY_VERIFICATION_CODES,
                     prefs.getBoolean(KEY_VERIFICATION_CODES, true)
             );
-            filters.put(KEY_BANK_MESSAGES, prefs.getBoolean(KEY_BANK_MESSAGES, true));
+            filters.put(
+                    KEY_BANK_MESSAGES,
+                    prefs.getBoolean(KEY_BANK_MESSAGES, true)
+            );
             filters.put(KEY_AD_SMS, prefs.getBoolean(KEY_AD_SMS, false));
             filters.put(
                     KEY_INTERNATIONAL_NUMBERS,
                     prefs.getBoolean(KEY_INTERNATIONAL_NUMBERS, true)
             );
-            filters.put(KEY_CRYPTO_SPAM, prefs.getBoolean(KEY_CRYPTO_SPAM, false));
+            filters.put(
+                    KEY_CRYPTO_SPAM,
+                    prefs.getBoolean(KEY_CRYPTO_SPAM, false)
+            );
             filters.put(KEY_BLACKLIST, prefs.getBoolean(KEY_BLACKLIST, true));
         } catch (Exception ignored) {
         }
@@ -476,6 +504,7 @@ public class MainActivity extends FlutterActivity {
                     SETTINGS_PREFS,
                     Context.MODE_PRIVATE
             );
+
             SharedPreferences storage = getSharedPreferences(
                     STORAGE_PREFS,
                     Context.MODE_PRIVATE
@@ -484,6 +513,7 @@ public class MainActivity extends FlutterActivity {
             JSONArray smsMessages = new JSONArray(
                     storage.getString(SMS_LIST_KEY, "[]")
             );
+
             JSONArray pushMessages = new JSONArray(
                     storage.getString(PUSH_LIST_KEY, "[]")
             );
@@ -543,6 +573,7 @@ public class MainActivity extends FlutterActivity {
             JSONArray smsMessages = new JSONArray(
                     storage.getString(SMS_LIST_KEY, "[]")
             );
+
             JSONArray pushMessages = new JSONArray(
                     storage.getString(PUSH_LIST_KEY, "[]")
             );

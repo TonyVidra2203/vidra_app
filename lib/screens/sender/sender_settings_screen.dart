@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../services/sender_permission_service.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
 import 'sender_permissions_screen.dart';
@@ -16,6 +17,8 @@ class SenderSettingsScreen extends StatefulWidget {
 
 class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
   final SenderSettingsService _settingsService = const SenderSettingsService();
+  final SenderPermissionService _permissionService =
+  const SenderPermissionService();
 
   bool smsForwarding = true;
   bool pushForwarding = true;
@@ -59,6 +62,7 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
     );
 
     _settings = updated;
+
     await _settingsService.save(updated);
   }
 
@@ -96,6 +100,14 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
     });
 
     await _saveSettings();
+  }
+
+  Future<void> _moveToBackground() async {
+    if (!backgroundMode) {
+      await _onSwitchChanged(type: 'background', value: true);
+    }
+
+    await _permissionService.moveAppToBackground();
   }
 
   @override
@@ -141,8 +153,15 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                     subtitle: 'Продолжать работу после закрытия приложения',
                     value: backgroundMode,
                     onChanged: (value) {
-                      _onSwitchChanged(type: 'background', value: value);
+                      _onSwitchChanged(
+                        type: 'background',
+                        value: value,
+                      );
                     },
+                  ),
+                  const SizedBox(height: 10),
+                  _BackgroundButton(
+                    onPressed: _moveToBackground,
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
@@ -195,7 +214,8 @@ class _InfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return const AppCard(
       child: Text(
-        'Настройки теперь сохраняются сразу. Если SMS не доходят, проверьте, что пересылка SMS включена и разрешение SMS выдано.',
+        'Настройки теперь сохраняются сразу.\n'
+            'Если SMS не доходят, проверьте, что пересылка SMS включена и разрешение SMS выдано.',
         style: TextStyle(
           color: AppColors.textSecondary,
           fontSize: 13,
@@ -253,6 +273,29 @@ class _SwitchCard extends StatelessWidget {
             activeColor: AppColors.primary,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BackgroundButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _BackgroundButton({
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.home_outlined),
+          label: const Text('Перевести приложение в фон'),
+        ),
       ),
     );
   }

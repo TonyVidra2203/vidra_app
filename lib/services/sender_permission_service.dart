@@ -18,7 +18,6 @@ class SenderPermissionService {
       final status = await Permission.sms.status.timeout(
         const Duration(seconds: 3),
       );
-
       return status.isGranted;
     } catch (_) {
       return false;
@@ -30,7 +29,6 @@ class SenderPermissionService {
       final status = await Permission.sms.request().timeout(
         const Duration(seconds: 10),
       );
-
       return status.isGranted;
     } catch (_) {
       return false;
@@ -51,6 +49,10 @@ class SenderPermissionService {
 
   Future<void> openBatteryOptimizationSettings() async {
     await _invokeVoid('openBatteryOptimizationSettings');
+  }
+
+  Future<void> moveAppToBackground() async {
+    await _invokeVoid('moveAppToBackground');
   }
 
   Future<void> openAppSettingsSafe() async {
@@ -79,7 +81,7 @@ class SenderPermissionService {
     if (!_isAndroid) return;
 
     try {
-      await _channel.invokeMethod<void>(method).timeout(
+      await _channel.invokeMethod(method).timeout(
         const Duration(seconds: 3),
       );
     } catch (_) {

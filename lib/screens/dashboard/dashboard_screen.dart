@@ -23,26 +23,30 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
-  StreamSubscription<dynamic>? messageUpdatesSubscription;
-  Timer? refreshTimer;
+  StreamSubscription<void>? messageUpdatesSubscription;
+  Timer? fallbackRefreshTimer;
 
   List<DeviceModel> devices = [];
   List<EventModel> events = [];
+
+  bool hasLoadedOnce = false;
+  bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
 
     WidgetsBinding.instance.addObserver(this);
+
     _loadDashboardData();
     _listenMessageUpdates();
-    _startAutoRefresh();
+    _startFallbackRefresh();
   }
 
   @override
   void dispose() {
     messageUpdatesSubscription?.cancel();
-    refreshTimer?.cancel();
+    fallbackRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
     super.dispose();
@@ -53,7 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (state == AppLifecycleState.resumed) {
       _loadDashboardData();
       _listenMessageUpdates();
-      _startAutoRefresh();
+      _startFallbackRefresh();
       return;
     }
 
@@ -63,8 +67,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
 
-      refreshTimer?.cancel();
-      refreshTimer = null;
+      fallbackRefreshTimer?.cancel();
+      fallbackRefreshTimer = null;
     }
   }
 
@@ -76,25 +80,41 @@ class _DashboardScreenState extends State<DashboardScreen>
     });
   }
 
-  void _startAutoRefresh() {
-    refreshTimer?.cancel();
+  void _startFallbackRefresh() {
+    fallbackRefreshTimer?.cancel();
 
-    refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _loadDashboardData();
-    });
+    fallbackRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+          (_) => _loadDashboardData(),
+    );
   }
 
   Future<void> _loadDashboardData() async {
-    final messages = await nativeService.getMessages();
-
-    if (!mounted) {
+    if (isLoading) {
       return;
     }
 
-    setState(() {
-      devices = _buildDeviceList(messages);
-      events = messages.take(5).map(_mapMessageToEvent).toList();
-    });
+    isLoading = true;
+
+    try {
+      final messages = await nativeService.getMessages();
+
+      if (!mounted) {
+        return;
+      }
+
+      if (messages.isEmpty && hasLoadedOnce) {
+        return;
+      }
+
+      setState(() {
+        hasLoadedOnce = true;
+        devices = _buildDeviceList(messages);
+        events = messages.take(5).map(_mapMessageToEvent).toList();
+      });
+    } finally {
+      isLoading = false;
+    }
   }
 
   List<DeviceModel> _buildDeviceList(List<NativeForwardedMessage> messages) {
