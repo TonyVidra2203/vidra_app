@@ -39,7 +39,9 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   Future<void> _loadState() async {
     final loadedState = await service.loadState();
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     setState(() {
       state = loadedState;
@@ -47,6 +49,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       serverUrlController.text = _extractServerUrl(loadedState.relayUrl);
       isLoading = false;
     });
+
+    if (loadedState.isMainPhone && loadedState.relayUrl.isNotEmpty) {
+      await _refreshPairing(showMessage: false);
+    }
   }
 
   Future<void> _createMainPhoneCode() async {
@@ -61,28 +67,20 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         serverUrl: serverUrlController.text,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         state = newState;
         serverUrlController.text = _extractServerUrl(newState.relayUrl);
         isSaving = false;
-        message = 'Код создан.\nВведите этот же сервер и код на рабочем телефоне.';
+        message = 'Код создан. Введите этот же сервер и код на рабочем телефоне.';
       });
     } on DevicePairingException catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        isSaving = false;
-        message = error.message;
-      });
+      _showError(error.message);
     } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        isSaving = false;
-        message = 'Не удалось создать код связки.';
-      });
+      _showError('Не удалось создать код связки.');
     }
   }
 
@@ -99,28 +97,20 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         serverUrl: serverUrlController.text,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         state = newState;
         serverUrlController.text = _extractServerUrl(newState.relayUrl);
         isSaving = false;
-        message = 'Рабочий телефон привязан.\nSMS и PUSH будут отправляться на сервер.';
+        message = 'Рабочий телефон привязан. SMS и PUSH будут отправляться на сервер.';
       });
     } on DevicePairingException catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        isSaving = false;
-        message = error.message;
-      });
+      _showError(error.message);
     } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        isSaving = false;
-        message = 'Не удалось привязать рабочий телефон.';
-      });
+      _showError('Не удалось привязать рабочий телефон.');
     }
   }
 
@@ -131,30 +121,64 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     });
 
     try {
-      final newState = await service.confirmWorkerPhone(
-        workerDeviceName: 'Рабочий телефон',
-      );
+      final newState = await service.confirmWorkerPhone();
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         state = newState;
         isSaving = false;
-        message = 'Связка подтверждена.\nГлавный телефон будет получать события с сервера.';
+        message = 'Связка подтверждена. Главный телефон будет получать события с сервера.';
       });
     } on DevicePairingException catch (error) {
-      if (!mounted) return;
+      _showError(error.message);
+    } catch (_) {
+      _showError('Не удалось подтвердить связку.');
+    }
+  }
+
+  Future<void> _refreshPairing({bool showMessage = true}) async {
+    if (!state.isMainPhone) {
+      return;
+    }
+
+    if (showMessage) {
+      setState(() {
+        isSaving = true;
+        message = '';
+      });
+    }
+
+    try {
+      final newState = await service.refreshMainPhonePairing();
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
+        state = newState;
         isSaving = false;
-        message = error.message;
+
+        if (showMessage) {
+          message = newState.pairedDeviceName.isEmpty
+              ? 'Рабочий телефон пока не найден. Отправьте тестовое SMS/PUSH с рабочего телефона.'
+              : 'Данные связки обновлены.';
+        }
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         isSaving = false;
-        message = 'Не удалось подтвердить связку.';
+
+        if (showMessage) {
+          message = 'Не удалось обновить данные связки.';
+        }
       });
     }
   }
@@ -167,13 +191,27 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
     await service.resetPairing();
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     setState(() {
       state = const DevicePairingState.empty();
       pairCodeController.clear();
+      serverUrlController.clear();
       isSaving = false;
       message = 'Связка сброшена.';
+    });
+  }
+
+  void _showError(String text) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      isSaving = false;
+      message = text;
     });
   }
 
@@ -224,7 +262,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
               '1. На главном телефоне введите адрес сервера и создайте код.\n'
               '2. На рабочем телефоне введите тот же адрес сервера и этот код.\n'
               '3. Рабочий телефон будет отправлять SMS/PUSH на сервер.\n'
-              '4. Главный телефон будет забирать события с сервера.',
+              '4. Главный телефон будет получать события с сервера.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),
@@ -346,6 +384,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   Widget _buildPairedCard() {
     final roleText = state.isMainPhone ? 'Главный телефон' : 'Рабочий телефон';
+    final linkedPhoneText = state.isMainPhone ? 'Рабочий' : 'Главный';
+    final linkedPhoneName = state.pairedDeviceName.trim().isEmpty
+        ? 'Ожидается первое событие'
+        : state.pairedDeviceName.trim();
 
     return Card(
       child: Padding(
@@ -364,9 +406,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             ),
             const SizedBox(height: 8),
             Text('Роль: $roleText'),
+            Text('$linkedPhoneText: $linkedPhoneName'),
             if (state.pairCode.isNotEmpty) Text('Код связки: ${state.pairCode}'),
-            if (state.pairedDeviceName.isNotEmpty)
-              Text('Связан с: ${state.pairedDeviceName}'),
             if (state.relayUrl.isNotEmpty) ...[
               const SizedBox(height: 8),
               SelectableText(
@@ -377,10 +418,21 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             const SizedBox(height: 14),
             Text(
               state.isMainPhone
-                  ? 'Главный телефон будет получать события с сервера в разделе “Сообщения”.'
-                  : 'Рабочий телефон будет отправлять SMS и PUSH на сервер.',
+                  ? 'Главный телефон получает события с сервера в разделе “Сообщения”.'
+                  : 'Рабочий телефон отправляет SMS и PUSH на сервер.',
               textAlign: TextAlign.center,
             ),
+            if (state.isMainPhone) ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: isSaving ? null : () => _refreshPairing(),
+                  icon: const Icon(Icons.refresh),
+                  label: Text(isSaving ? 'Обновляю...' : 'Обновить связку'),
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
             TextButton(
               onPressed: isSaving ? null : _resetPairing,

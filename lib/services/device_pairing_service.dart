@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/services.dart';
@@ -48,12 +49,31 @@ class DevicePairingState {
         createdAt = null;
 
   bool get hasPairCode => pairCode.isNotEmpty;
-
   bool get isMainPhone => role == DevicePairingRole.mainPhone;
-
   bool get isWorkerPhone => role == DevicePairingRole.workerPhone;
-
   bool get isPaired => status == DevicePairingStatus.paired;
+
+  DevicePairingState copyWith({
+    DevicePairingRole? role,
+    DevicePairingStatus? status,
+    String? deviceName,
+    String? pairCode,
+    String? pairedDeviceName,
+    String? relayUrl,
+    String? relayApiKey,
+    DateTime? createdAt,
+  }) {
+    return DevicePairingState(
+      role: role ?? this.role,
+      status: status ?? this.status,
+      deviceName: deviceName ?? this.deviceName,
+      pairCode: pairCode ?? this.pairCode,
+      pairedDeviceName: pairedDeviceName ?? this.pairedDeviceName,
+      relayUrl: relayUrl ?? this.relayUrl,
+      relayApiKey: relayApiKey ?? this.relayApiKey,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -68,7 +88,7 @@ class DevicePairingState {
     };
   }
 
-  factory DevicePairingState.fromJson(Map json) {
+  factory DevicePairingState.fromJson(Map<dynamic, dynamic> json) {
     return DevicePairingState(
       role: _roleFromString(json['role']?.toString()),
       status: _statusFromString(json['status']?.toString()),
@@ -124,15 +144,12 @@ class DevicePairingService {
 
     try {
       final decoded = jsonDecode(rawValue);
-
       if (decoded is Map) {
         return DevicePairingState.fromJson(decoded);
       }
+    } catch (_) {}
 
-      return const DevicePairingState.empty();
-    } catch (_) {
-      return const DevicePairingState.empty();
-    }
+    return const DevicePairingState.empty();
   }
 
   Future<DevicePairingState> createMainPhonePairCode({
@@ -218,9 +235,7 @@ class DevicePairingService {
     return state;
   }
 
-  Future<DevicePairingState> confirmWorkerPhone({
-    required String workerDeviceName,
-  }) async {
+  Future<DevicePairingState> confirmWorkerPhone() async {
     final currentState = await loadState();
 
     if (!currentState.isMainPhone || !currentState.hasPairCode) {
@@ -229,18 +244,10 @@ class DevicePairingService {
       );
     }
 
-    final state = DevicePairingState(
-      role: DevicePairingRole.mainPhone,
+    final workerName = await detectWorkerDeviceName(currentState);
+    final state = currentState.copyWith(
       status: DevicePairingStatus.paired,
-      deviceName: currentState.deviceName,
-      pairCode: currentState.pairCode,
-      pairedDeviceName: _cleanName(
-        workerDeviceName,
-        fallback: 'Рабочий телефон',
-      ),
-      relayUrl: currentState.relayUrl,
-      relayApiKey: currentState.relayApiKey,
-      createdAt: currentState.createdAt,
+      pairedDeviceName: workerName,
     );
 
     await _saveState(state);
@@ -249,19 +256,63 @@ class DevicePairingService {
     return state;
   }
 
+  Future<DevicePairingState> refreshMainPhonePairing() async {
+    final currentState = await loadState();
+
+    if (!currentState.isMainPhone || currentState.relayUrl.trim().isEmpty) {
+      return currentState;
+    }
+
+    final workerName = await detectWorkerDeviceName(currentState);
+
+    if (workerName.trim().isEmpty) {
+      return currentState;
+    }
+
+    final state = currentState.copyWith(
+      status: DevicePairingStatus.paired,
+      pairedDeviceName: workerName,
+    );
+
+    await _saveState(state);
+    await _saveMainPhoneSettings(state);
+
+    return state;
+  }
+
+  Future<String> detectWorkerDeviceName(DevicePairingState state) async {
+    final events = await _loadRelayEvents(state.relayUrl);
+
+    for (final event in events) {
+      final deviceName = event['deviceName']?.toString().trim() ?? '';
+      final deviceId = event['deviceId']?.toString().trim() ?? '';
+
+      if (deviceName.isNotEmpty && deviceName != state.deviceName) {
+        return deviceName;
+      }
+
+      if (deviceId.isNotEmpty) {
+        return 'Рабочий телефон';
+      }
+    }
+
+    return 'Рабочий телефон';
+  }
+
   Future<void> resetPairing() async {
     final prefs = await SharedPreferences.getInstance();
-
-    final savedDeviceName = prefs.getString(_senderDeviceNameKey) ?? '';
-    final savedDeviceId = prefs.getString(_senderDeviceIdKey) ?? '';
 
     await prefs.remove(_storageKey);
     await prefs.remove(_senderRelayUrlKey);
     await prefs.remove(_senderRelayApiKeyKey);
 
     await _saveNativeSenderSettings(
-      deviceName: savedDeviceName,
-      deviceId: savedDeviceId,
+      smsForwarding: false,
+      pushForwarding: false,
+      backgroundMode: false,
+      onlyWithInternet: false,
+      deviceName: '',
+      deviceId: '',
       relayUrl: '',
       relayApiKey: '',
     );
@@ -275,10 +326,20 @@ class DevicePairingService {
   Future<void> _saveMainPhoneSettings(DevicePairingState state) async {
     final prefs = await SharedPreferences.getInstance();
 
+    await prefs.setBool(_senderSmsForwardingKey, false);
+    await prefs.setBool(_senderPushForwardingKey, false);
+    await prefs.setBool(_senderBackgroundModeKey, false);
+    await prefs.setBool(_senderOnlyWithInternetKey, false);
+    await prefs.setString(_senderDeviceNameKey, state.deviceName);
+    await prefs.setString(_senderDeviceIdKey, '');
     await prefs.setString(_senderRelayUrlKey, state.relayUrl);
     await prefs.setString(_senderRelayApiKeyKey, state.relayApiKey);
 
     await _saveNativeSenderSettings(
+      smsForwarding: false,
+      pushForwarding: false,
+      backgroundMode: false,
+      onlyWithInternet: false,
       deviceName: state.deviceName,
       deviceId: '',
       relayUrl: state.relayUrl,
@@ -304,6 +365,10 @@ class DevicePairingService {
     await prefs.setString(_senderRelayApiKeyKey, relayApiKey);
 
     await _saveNativeSenderSettings(
+      smsForwarding: true,
+      pushForwarding: true,
+      backgroundMode: true,
+      onlyWithInternet: false,
       deviceName: deviceName,
       deviceId: deviceId,
       relayUrl: relayUrl,
@@ -312,6 +377,10 @@ class DevicePairingService {
   }
 
   Future<void> _saveNativeSenderSettings({
+    required bool smsForwarding,
+    required bool pushForwarding,
+    required bool backgroundMode,
+    required bool onlyWithInternet,
     required String deviceName,
     required String deviceId,
     required String relayUrl,
@@ -319,16 +388,84 @@ class DevicePairingService {
   }) async {
     try {
       await _channel.invokeMethod('saveSenderSettings', {
-        'smsForwarding': true,
-        'pushForwarding': true,
-        'backgroundMode': true,
-        'onlyWithInternet': false,
+        'smsForwarding': smsForwarding,
+        'pushForwarding': pushForwarding,
+        'backgroundMode': backgroundMode,
+        'onlyWithInternet': onlyWithInternet,
         'deviceName': deviceName,
         'deviceId': deviceId,
         'relayUrl': relayUrl,
         'relayApiKey': relayApiKey,
       }).timeout(const Duration(seconds: 3));
     } catch (_) {}
+  }
+
+  Future<List<Map<String, dynamic>>> _loadRelayEvents(String relayUrl) async {
+    final cleanedRelayUrl = relayUrl.trim();
+
+    if (cleanedRelayUrl.isEmpty) {
+      return [];
+    }
+
+    HttpClient? client;
+
+    try {
+      final uri = Uri.parse(cleanedRelayUrl);
+      client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 6);
+
+      final request = await client.getUrl(uri).timeout(
+        const Duration(seconds: 6),
+      );
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+
+      final response = await request.close().timeout(
+        const Duration(seconds: 6),
+      );
+      final body = await response.transform(utf8.decoder).join();
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return [];
+      }
+
+      final decoded = jsonDecode(body);
+      final list = _extractEventsList(decoded);
+
+      return list
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    } catch (_) {
+      return [];
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  List<dynamic> _extractEventsList(Object? decoded) {
+    if (decoded is List) {
+      return decoded;
+    }
+
+    if (decoded is Map) {
+      final events = decoded['events'];
+      final messages = decoded['messages'];
+      final data = decoded['data'];
+
+      if (events is List) {
+        return events;
+      }
+
+      if (messages is List) {
+        return messages;
+      }
+
+      if (data is List) {
+        return data;
+      }
+    }
+
+    return [];
   }
 
   Future<String> _getOrCreateDeviceId() async {
