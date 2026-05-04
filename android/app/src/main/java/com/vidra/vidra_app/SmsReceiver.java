@@ -27,23 +27,45 @@ public class SmsReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (context == null || intent == null || intent.getExtras() == null) {
+        Log.d(TAG, "SMS receiver called");
+
+        if (context == null) {
+            Log.e(TAG, "SMS receiver stopped: context is null");
             return;
         }
 
+        if (intent == null) {
+            Log.e(TAG, "SMS receiver stopped: intent is null");
+            return;
+        }
+
+        String action = intent.getAction();
+        Log.d(TAG, "SMS receiver action: " + action);
+
         if (!isSmsForwardingEnabled(context)) {
-            Log.d(TAG, "SMS forwarding disabled");
+            Log.e(TAG, "SMS forwarding disabled in settings");
             return;
         }
 
         Bundle bundle = intent.getExtras();
+
+        if (bundle == null) {
+            Log.e(TAG, "SMS receiver stopped: extras bundle is null");
+            return;
+        }
+
         Object[] pdus = (Object[]) bundle.get("pdus");
 
         if (pdus == null || pdus.length == 0) {
+            Log.e(TAG, "SMS receiver stopped: pdus are empty");
             return;
         }
 
         String format = bundle.getString("format");
+
+        Log.d(TAG, "SMS pdus count: " + pdus.length);
+        Log.d(TAG, "SMS format: " + format);
+
         String sender = "";
         StringBuilder messageBody = new StringBuilder();
 
@@ -51,34 +73,44 @@ public class SmsReceiver extends BroadcastReceiver {
             SmsMessage smsMessage = createSmsMessage(pdu, format);
 
             if (smsMessage == null) {
+                Log.e(TAG, "SMS part skipped: smsMessage is null");
                 continue;
             }
 
             if (sender.isEmpty()) {
-                sender = smsMessage.getDisplayOriginatingAddress();
+                sender = clean(smsMessage.getDisplayOriginatingAddress());
             }
 
-            messageBody.append(smsMessage.getMessageBody());
+            String partBody = clean(smsMessage.getMessageBody());
+
+            if (!partBody.isEmpty()) {
+                messageBody.append(partBody);
+            }
         }
 
-        if (sender.isEmpty() && messageBody.length() == 0) {
+        String text = messageBody.toString();
+
+        Log.d(TAG, "SMS sender: " + sender);
+        Log.d(TAG, "SMS text length: " + text.length());
+
+        if (sender.isEmpty() && text.isEmpty()) {
+            Log.e(TAG, "SMS receiver stopped: sender and text are empty");
             return;
         }
 
         long receivedAt = System.currentTimeMillis();
 
         try {
-            JSONObject payload = buildPayload(
-                    context,
-                    sender,
-                    messageBody.toString(),
-                    receivedAt
-            );
+            JSONObject payload = buildPayload(context, sender, text, receivedAt);
 
             saveSms(context, payload);
+
+            Log.d(TAG, "Sending SMS event to relay");
+            Log.d(TAG, "SMS payload: " + payload);
+
             NetworkClient.sendEvent(context, payload);
 
-            Log.d(TAG, "Incoming SMS captured and processed");
+            Log.d(TAG, "Incoming SMS captured and passed to NetworkClient");
         } catch (Exception e) {
             Log.e(TAG, "Failed to process SMS", e);
         }
@@ -95,6 +127,11 @@ public class SmsReceiver extends BroadcastReceiver {
 
     private SmsMessage createSmsMessage(Object pdu, String format) {
         try {
+            if (!(pdu instanceof byte[])) {
+                Log.e(TAG, "Invalid PDU type: " + pdu);
+                return null;
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 return SmsMessage.createFromPdu((byte[]) pdu, format);
             }
@@ -117,23 +154,23 @@ public class SmsReceiver extends BroadcastReceiver {
                 Context.MODE_PRIVATE
         );
 
-        String deviceName = prefs.getString(
-                KEY_DEVICE_NAME,
-                Build.MANUFACTURER + " " + Build.MODEL
-        );
-
-        String deviceId = prefs.getString(KEY_DEVICE_ID, "");
+        String defaultDeviceName = clean(Build.MANUFACTURER + " " + Build.MODEL);
+        String deviceName = clean(prefs.getString(KEY_DEVICE_NAME, defaultDeviceName));
+        String deviceId = clean(prefs.getString(KEY_DEVICE_ID, ""));
 
         JSONObject payload = new JSONObject();
+
         payload.put("id", "sms_" + receivedAt);
         payload.put("type", "sms");
         payload.put("sender", sender);
         payload.put("app", "");
         payload.put("packageName", "");
-        payload.put("title", sender);
+        payload.put("title", sender.isEmpty() ? "SMS" : sender);
         payload.put("text", body);
-        payload.put("deviceName", deviceName == null ? Build.MODEL : deviceName);
-        payload.put("deviceId", deviceId == null ? "" : deviceId);
+        payload.put("deviceName", deviceName.isEmpty() ? defaultDeviceName : deviceName);
+        payload.put("deviceId", deviceId);
+        payload.put("deviceBrand", clean(Build.BRAND));
+        payload.put("deviceModel", clean(Build.MODEL));
         payload.put("status", "received");
         payload.put("receivedAt", receivedAt);
 
@@ -154,6 +191,7 @@ public class SmsReceiver extends BroadcastReceiver {
             newMessages.put(message);
 
             int limit = Math.min(oldMessages.length(), MAX_MESSAGES - 1);
+
             for (int i = 0; i < limit; i++) {
                 newMessages.put(oldMessages.getJSONObject(i));
             }
@@ -166,5 +204,13 @@ public class SmsReceiver extends BroadcastReceiver {
         } catch (Exception e) {
             Log.e(TAG, "Failed to save SMS", e);
         }
+    }
+
+    private String clean(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value.trim();
     }
 }

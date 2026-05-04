@@ -21,7 +21,6 @@ public final class NetworkClient {
     private static final String TAG = "VidRA_NETWORK";
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
-
     private static final String KEY_ONLY_WITH_INTERNET = "onlyWithInternet";
     private static final String KEY_RELAY_URL = "relayUrl";
     private static final String KEY_RELAY_API_KEY = "relayApiKey";
@@ -34,6 +33,7 @@ public final class NetworkClient {
 
     public static void sendEvent(Context context, JSONObject payload) {
         if (context == null || payload == null) {
+            Log.e(TAG, "sendEvent skipped: context or payload is null");
             return;
         }
 
@@ -43,8 +43,9 @@ public final class NetworkClient {
         );
 
         boolean onlyWithInternet = prefs.getBoolean(KEY_ONLY_WITH_INTERNET, false);
+
         if (onlyWithInternet && !hasInternet(context)) {
-            Log.d(TAG, "Internet is required, but device is offline");
+            Log.e(TAG, "sendEvent skipped: onlyWithInternet enabled, but device is offline");
             return;
         }
 
@@ -52,13 +53,36 @@ public final class NetworkClient {
         String apiKey = clean(prefs.getString(KEY_RELAY_API_KEY, ""));
 
         if (relayUrl.isEmpty()) {
-            Log.d(TAG, "Relay URL is empty. Event saved locally only.");
+            Log.e(TAG, "sendEvent skipped: relayUrl is empty");
             return;
         }
 
         JSONObject event = enrichPayload(payload);
 
-        new Thread(() -> postJson(relayUrl, apiKey, event.toString())).start();
+        Log.d(TAG, "Preparing event for relay");
+        Log.d(TAG, "Relay URL: " + relayUrl);
+        Log.d(TAG, "Payload: " + event);
+
+        new Thread(() -> sendWithFallbacks(relayUrl, apiKey, event.toString())).start();
+    }
+
+    private static void sendWithFallbacks(String relayUrl, String apiKey, String jsonBody) {
+        boolean sent = postJson(relayUrl, apiKey, jsonBody);
+
+        if (sent) {
+            return;
+        }
+
+        String fallbackUrl = buildEventsFallbackUrl(relayUrl);
+
+        if (!fallbackUrl.isEmpty() && !fallbackUrl.equals(relayUrl)) {
+            Log.d(TAG, "Trying fallback relay URL: " + fallbackUrl);
+            sent = postJson(fallbackUrl, apiKey, jsonBody);
+        }
+
+        if (!sent) {
+            Log.e(TAG, "Event was not accepted by relay");
+        }
     }
 
     private static JSONObject enrichPayload(JSONObject payload) {
@@ -80,13 +104,13 @@ public final class NetworkClient {
         return payload;
     }
 
-    private static void postJson(String relayUrl, String apiKey, String jsonBody) {
+    private static boolean postJson(String relayUrl, String apiKey, String jsonBody) {
         HttpURLConnection connection = null;
 
         try {
             URL url = new URL(relayUrl);
-            connection = (HttpURLConnection) url.openConnection();
 
+            connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
@@ -118,20 +142,47 @@ public final class NetworkClient {
             String responseBody = readResponse(connection, responseCode);
 
             if (responseCode >= 200 && responseCode < 300) {
-                Log.d(TAG, "Event sent to relay. Code: " + responseCode);
-                return;
+                Log.d(TAG, "Event sent successfully");
+                Log.d(TAG, "Response code: " + responseCode);
+                Log.d(TAG, "Response body: " + responseBody);
+                return true;
             }
 
-            Log.e(
-                    TAG,
-                    "Relay rejected event. Code: " + responseCode + ", body: " + responseBody
-            );
+            Log.e(TAG, "Relay rejected event");
+            Log.e(TAG, "URL: " + relayUrl);
+            Log.e(TAG, "Response code: " + responseCode);
+            Log.e(TAG, "Response body: " + responseBody);
+            return false;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to send event to relay", e);
+            Log.e(TAG, "Failed to send event");
+            Log.e(TAG, "URL: " + relayUrl, e);
+            return false;
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    private static String buildEventsFallbackUrl(String relayUrl) {
+        try {
+            URL url = new URL(relayUrl);
+            String protocol = url.getProtocol();
+            String host = url.getHost();
+            int port = url.getPort();
+
+            StringBuilder builder = new StringBuilder();
+            builder.append(protocol).append("://").append(host);
+
+            if (port > 0) {
+                builder.append(":").append(port);
+            }
+
+            builder.append("/events");
+
+            return builder.toString();
+        } catch (Exception e) {
+            return "";
         }
     }
 
@@ -197,6 +248,7 @@ public final class NetworkClient {
             }
 
             android.net.NetworkInfo activeNetwork = manager.getActiveNetworkInfo();
+
             return activeNetwork != null && activeNetwork.isConnected();
         } catch (Exception e) {
             return false;

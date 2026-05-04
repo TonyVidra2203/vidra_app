@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
-import '../pairing/device_pairing_screen.dart';
 import 'sender_permissions_screen.dart';
 import 'sender_status_screen.dart';
 import 'widgets/sender_bottom_nav_bar.dart';
@@ -16,21 +15,15 @@ class SenderSettingsScreen extends StatefulWidget {
 }
 
 class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
-  final SenderSettingsService settingsService = const SenderSettingsService();
+  final SenderSettingsService _settingsService = const SenderSettingsService();
 
-  final TextEditingController deviceNameController = TextEditingController();
-  final TextEditingController relayUrlController = TextEditingController();
-  final TextEditingController relayApiKeyController = TextEditingController();
-
-  SenderSettingsState settings = const SenderSettingsState(
-    smsForwarding: true,
-    pushForwarding: true,
-    backgroundMode: true,
-    onlyWithInternet: false,
-  );
-
+  bool smsForwarding = true;
+  bool pushForwarding = true;
+  bool backgroundMode = true;
+  bool onlyWithInternet = false;
   bool isLoading = true;
-  bool isSaving = false;
+
+  SenderSettingsState? _settings;
 
   @override
   void initState() {
@@ -38,72 +31,35 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
     _loadSettings();
   }
 
-  @override
-  void dispose() {
-    deviceNameController.dispose();
-    relayUrlController.dispose();
-    relayApiKeyController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadSettings() async {
-    try {
-      final loadedSettings = await settingsService.load();
+    final settings = await _settingsService.load();
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      setState(() {
-        settings = loadedSettings;
-        deviceNameController.text = loadedSettings.deviceName;
-        relayUrlController.text = loadedSettings.relayUrl;
-        relayApiKeyController.text = loadedSettings.relayApiKey;
-        isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => isLoading = false);
-    }
-  }
-
-  Future<void> _updateSettings(SenderSettingsState newSettings) async {
     setState(() {
-      settings = newSettings;
-      isSaving = true;
+      _settings = settings;
+      smsForwarding = settings.smsForwarding;
+      pushForwarding = settings.pushForwarding;
+      backgroundMode = settings.backgroundMode;
+      onlyWithInternet = settings.onlyWithInternet;
+      isLoading = false;
     });
-
-    await settingsService.save(newSettings);
-
-    if (!mounted) return;
-    setState(() => isSaving = false);
   }
 
-  Future<void> _saveDeviceSettings() async {
-    final deviceName = deviceNameController.text.trim();
-    final relayUrl = relayUrlController.text.trim();
-    final relayApiKey = relayApiKeyController.text.trim();
+  Future<void> _saveSettings() async {
+    final current = _settings;
 
-    await _updateSettings(
-      settings.copyWith(
-        deviceName: deviceName.isEmpty ? 'Рабочий телефон' : deviceName,
-        relayUrl: relayUrl,
-        relayApiKey: relayApiKey,
-      ),
+    if (current == null) return;
+
+    final updated = current.copyWith(
+      smsForwarding: smsForwarding,
+      pushForwarding: pushForwarding,
+      backgroundMode: backgroundMode,
+      onlyWithInternet: onlyWithInternet,
     );
 
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Настройки сохранены')),
-    );
-  }
-
-  void _openPairingScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const DevicePairingScreen(),
-      ),
-    );
+    _settings = updated;
+    await _settingsService.save(updated);
   }
 
   void _onNavTap(BuildContext context, int index) {
@@ -121,6 +77,25 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _onSwitchChanged({
+    required String type,
+    required bool value,
+  }) async {
+    setState(() {
+      if (type == 'sms') {
+        smsForwarding = value;
+      } else if (type == 'push') {
+        pushForwarding = value;
+      } else if (type == 'background') {
+        backgroundMode = value;
+      } else if (type == 'internet') {
+        onlyWithInternet = value;
+      }
+    });
+
+    await _saveSettings();
   }
 
   @override
@@ -141,124 +116,41 @@ class _SenderSettingsScreenState extends State<SenderSettingsScreen> {
                   : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _PairingCard(onTap: _openPairingScreen),
-                  const SizedBox(height: 14),
-                  AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Рабочее устройство',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Название будет отображаться в личном кабинете и на главном телефоне.',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: deviceNameController,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: 'Рабочий телефон',
-                            labelText: 'Название устройства',
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: relayUrlController,
-                          keyboardType: TextInputType.url,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText:
-                            'http://45.80.68.83:8000/events',
-                            labelText: 'URL сервера',
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: relayApiKeyController,
-                          obscureText: true,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: 'Ключ будет выдан сервером',
-                            labelText: 'API-ключ',
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 46,
-                          child: ElevatedButton(
-                            onPressed: isSaving
-                                ? null
-                                : _saveDeviceSettings,
-                            child: Text(
-                              isSaving ? 'Сохраняю...' : 'Сохранить',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const _InfoCard(),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка SMS',
-                    subtitle: 'Передавать входящие SMS в аккаунт VidRA',
-                    value: settings.smsForwarding,
+                    subtitle: 'Отправлять входящие SMS на главный телефон',
+                    value: smsForwarding,
                     onChanged: (value) {
-                      _updateSettings(
-                        settings.copyWith(smsForwarding: value),
-                      );
+                      _onSwitchChanged(type: 'sms', value: value);
                     },
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Пересылка PUSH',
-                    subtitle:
-                    'Передавать уведомления приложений в аккаунт VidRA',
-                    value: settings.pushForwarding,
+                    subtitle: 'Отправлять уведомления приложений',
+                    value: pushForwarding,
                     onChanged: (value) {
-                      _updateSettings(
-                        settings.copyWith(pushForwarding: value),
-                      );
+                      _onSwitchChanged(type: 'push', value: value);
                     },
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Фоновый режим',
-                    subtitle:
-                    'Продолжать работу после закрытия приложения',
-                    value: settings.backgroundMode,
+                    subtitle: 'Продолжать работу после закрытия приложения',
+                    value: backgroundMode,
                     onChanged: (value) {
-                      _updateSettings(
-                        settings.copyWith(backgroundMode: value),
-                      );
+                      _onSwitchChanged(type: 'background', value: value);
                     },
                   ),
                   const SizedBox(height: 14),
                   _SwitchCard(
                     title: 'Только через интернет',
                     subtitle: 'Не отправлять данные без подключения к сети',
-                    value: settings.onlyWithInternet,
+                    value: onlyWithInternet,
                     onChanged: (value) {
-                      _updateSettings(
-                        settings.copyWith(onlyWithInternet: value),
-                      );
+                      _onSwitchChanged(type: 'internet', value: value);
                     },
                   ),
                 ],
@@ -296,45 +188,19 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _PairingCard extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _PairingCard({
-    required this.onTap,
-  });
+class _InfoCard extends StatelessWidget {
+  const _InfoCard();
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const CircleAvatar(
-          backgroundColor: Color(0x1A8B5CF6),
-          child: Icon(
-            Icons.link,
-            color: AppColors.primary,
-          ),
+    return const AppCard(
+      child: Text(
+        'Настройки теперь сохраняются сразу. Если SMS не доходят, проверьте, что пересылка SMS включена и разрешение SMS выдано.',
+        style: TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 13,
+          height: 1.4,
         ),
-        title: const Text(
-          'Связка телефонов',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: const Text(
-          'Введите код с главного телефона или проверьте привязку',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 12,
-          ),
-        ),
-        trailing: const Icon(
-          Icons.chevron_right,
-          color: AppColors.primary,
-        ),
-        onTap: onTap,
       ),
     );
   }
@@ -384,8 +250,7 @@ class _SwitchCard extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeThumbColor: AppColors.primary,
-            activeTrackColor: AppColors.primary.withOpacity(0.4),
+            activeColor: AppColors.primary,
           ),
         ],
       ),

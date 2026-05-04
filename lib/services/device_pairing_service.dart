@@ -68,7 +68,7 @@ class DevicePairingState {
     };
   }
 
-  factory DevicePairingState.fromJson(Map<dynamic, dynamic> json) {
+  factory DevicePairingState.fromJson(Map json) {
     return DevicePairingState(
       role: _roleFromString(json['role']?.toString()),
       status: _statusFromString(json['status']?.toString()),
@@ -118,7 +118,7 @@ class DevicePairingService {
     final prefs = await SharedPreferences.getInstance();
     final rawValue = prefs.getString(_storageKey);
 
-    if (rawValue == null || rawValue.isEmpty) {
+    if (rawValue == null || rawValue.trim().isEmpty) {
       return const DevicePairingState.empty();
     }
 
@@ -142,16 +142,20 @@ class DevicePairingService {
     final cleanedServerUrl = _cleanServerUrl(serverUrl);
 
     if (cleanedServerUrl.isEmpty) {
-      throw const DevicePairingException('Введите адрес вашего сервера.');
+      throw const DevicePairingException('Введите адрес сервера.');
     }
 
     final pairCode = _generatePairCode();
     final relayUrl = _buildRelayUrl(cleanedServerUrl, pairCode);
+    final cleanDeviceName = _cleanName(
+      deviceName,
+      fallback: 'Главный телефон',
+    );
 
     final state = DevicePairingState(
       role: DevicePairingRole.mainPhone,
       status: DevicePairingStatus.waitingForWorker,
-      deviceName: _cleanName(deviceName, fallback: 'Главный телефон'),
+      deviceName: cleanDeviceName,
       pairCode: pairCode,
       pairedDeviceName: '',
       relayUrl: relayUrl,
@@ -160,7 +164,7 @@ class DevicePairingService {
     );
 
     await _saveState(state);
-    await _saveRelaySettingsForMainPhone(state);
+    await _saveMainPhoneSettings(state);
 
     return state;
   }
@@ -181,7 +185,7 @@ class DevicePairingService {
 
     if (cleanedServerUrl.isEmpty) {
       throw const DevicePairingException(
-        'Введите тот же адрес сервера, что и на главном телефоне.',
+        'Введите адрес сервера. Например: http://45.80.68.83:3000',
       );
     }
 
@@ -204,7 +208,7 @@ class DevicePairingService {
     );
 
     await _saveState(state);
-    await _saveSenderSettingsForWorkerPhone(
+    await _saveWorkerPhoneSettings(
       deviceName: cleanDeviceName,
       deviceId: deviceId,
       relayUrl: relayUrl,
@@ -240,7 +244,7 @@ class DevicePairingService {
     );
 
     await _saveState(state);
-    await _saveRelaySettingsForMainPhone(state);
+    await _saveMainPhoneSettings(state);
 
     return state;
   }
@@ -248,13 +252,16 @@ class DevicePairingService {
   Future<void> resetPairing() async {
     final prefs = await SharedPreferences.getInstance();
 
+    final savedDeviceName = prefs.getString(_senderDeviceNameKey) ?? '';
+    final savedDeviceId = prefs.getString(_senderDeviceIdKey) ?? '';
+
     await prefs.remove(_storageKey);
     await prefs.remove(_senderRelayUrlKey);
     await prefs.remove(_senderRelayApiKeyKey);
 
     await _saveNativeSenderSettings(
-      deviceName: prefs.getString(_senderDeviceNameKey) ?? 'Рабочий телефон',
-      deviceId: prefs.getString(_senderDeviceIdKey) ?? '',
+      deviceName: savedDeviceName,
+      deviceId: savedDeviceId,
       relayUrl: '',
       relayApiKey: '',
     );
@@ -265,16 +272,21 @@ class DevicePairingService {
     await prefs.setString(_storageKey, jsonEncode(state.toJson()));
   }
 
-  Future<void> _saveRelaySettingsForMainPhone(
-      DevicePairingState state,
-      ) async {
+  Future<void> _saveMainPhoneSettings(DevicePairingState state) async {
     final prefs = await SharedPreferences.getInstance();
 
     await prefs.setString(_senderRelayUrlKey, state.relayUrl);
     await prefs.setString(_senderRelayApiKeyKey, state.relayApiKey);
+
+    await _saveNativeSenderSettings(
+      deviceName: state.deviceName,
+      deviceId: '',
+      relayUrl: state.relayUrl,
+      relayApiKey: state.relayApiKey,
+    );
   }
 
-  Future<void> _saveSenderSettingsForWorkerPhone({
+  Future<void> _saveWorkerPhoneSettings({
     required String deviceName,
     required String deviceId,
     required String relayUrl,
@@ -348,7 +360,6 @@ class DevicePairingService {
     final random = Random.secure();
     final time = DateTime.now().millisecondsSinceEpoch;
     final randomPart = random.nextInt(999999).toString().padLeft(6, '0');
-
     return 'vidra_$time$randomPart';
   }
 
@@ -372,11 +383,14 @@ class DevicePairingService {
       return '';
     }
 
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return trimmed;
+    final withoutTrailingSlash = trimmed.replaceAll(RegExp(r'/+$'), '');
+
+    if (withoutTrailingSlash.startsWith('http://') ||
+        withoutTrailingSlash.startsWith('https://')) {
+      return withoutTrailingSlash;
     }
 
-    return 'https://$trimmed';
+    return 'http://$withoutTrailingSlash';
   }
 
   String _cleanPairCode(String value) {

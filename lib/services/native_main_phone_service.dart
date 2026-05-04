@@ -14,8 +14,7 @@ class NativeMainPhoneService {
     'vidra/native_events',
   );
 
-  static const String _relayUrlKey = 'sender_relay_url';
-  static const String _relayApiKeyKey = 'sender_relay_api_key';
+  static const String _pairingStateKey = 'device_pairing_state';
 
   const NativeMainPhoneService();
 
@@ -63,9 +62,8 @@ class NativeMainPhoneService {
 
   Future<MainPhoneNativeStatus> getStatus() async {
     try {
-      final value = await _channel.invokeMethod<String>('getMainPhoneStatus');
+      final value = await _channel.invokeMethod('getMainPhoneStatus');
       final map = jsonDecode(value ?? '{}') as Map;
-
       return MainPhoneNativeStatus.fromJson(map);
     } catch (_) {
       return const MainPhoneNativeStatus();
@@ -74,9 +72,8 @@ class NativeMainPhoneService {
 
   Future<MainPhoneFilterSettings> getFilterSettings() async {
     try {
-      final value = await _channel.invokeMethod<String>('getFilterSettings');
+      final value = await _channel.invokeMethod('getFilterSettings');
       final map = jsonDecode(value ?? '{}') as Map;
-
       return MainPhoneFilterSettings.fromJson(map);
     } catch (_) {
       return const MainPhoneFilterSettings();
@@ -88,12 +85,12 @@ class NativeMainPhoneService {
   }
 
   Future<List<NativeForwardedMessage>> getMessages() async {
-    final localMessages = await _getLocalMessages();
+    final nativeMessages = await _getNativeMessages();
     final relayMessages = await _getRelayMessages();
 
-    final messages = [
+    final messages = <NativeForwardedMessage>[
       ...relayMessages,
-      ...localMessages,
+      ...nativeMessages,
     ];
 
     messages.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
@@ -105,77 +102,10 @@ class NativeMainPhoneService {
     await _channel.invokeMethod('clearNativeMessages');
   }
 
-  Future<bool> _invokeBool(String method) async {
+  Future<List<NativeForwardedMessage>> _getNativeMessages() async {
     try {
-      return await _channel.invokeMethod<bool>(method) ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<List<NativeForwardedMessage>> _getLocalMessages() async {
-    try {
-      final value = await _channel.invokeMethod<String>('getNativeMessages');
-
-      return _parseMessages(value ?? '[]');
-    } catch (_) {
-      return [];
-    }
-  }
-
-  Future<List<NativeForwardedMessage>> _getRelayMessages() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final relayUrl = prefs.getString(_relayUrlKey)?.trim() ?? '';
-    final relayApiKey = prefs.getString(_relayApiKeyKey)?.trim() ?? '';
-
-    if (relayUrl.isEmpty) {
-      return [];
-    }
-
-    HttpClient? client;
-
-    try {
-      client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 8);
-
-      final request = await client.getUrl(Uri.parse(relayUrl)).timeout(
-        const Duration(seconds: 8),
-      );
-
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'VidRA-Android');
-
-      if (relayApiKey.isNotEmpty) {
-        request.headers.set(
-          HttpHeaders.authorizationHeader,
-          'Bearer $relayApiKey',
-        );
-        request.headers.set('X-Api-Key', relayApiKey);
-      }
-
-      final response = await request.close().timeout(
-        const Duration(seconds: 8),
-      );
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return [];
-      }
-
-      final body = await response.transform(utf8.decoder).join();
-
-      return _parseMessages(body);
-    } catch (_) {
-      return [];
-    } finally {
-      client?.close(force: true);
-    }
-  }
-
-  List<NativeForwardedMessage> _parseMessages(String rawValue) {
-    try {
-      final decoded = jsonDecode(rawValue);
-      final list = _extractMessageList(decoded);
+      final value = await _channel.invokeMethod('getNativeMessages');
+      final list = jsonDecode(value ?? '[]') as List;
 
       return list
           .whereType<Map>()
@@ -184,54 +114,129 @@ class NativeMainPhoneService {
           Map<String, dynamic>.from(item),
         );
       })
-          .where((message) {
-        return message.type.isNotEmpty &&
-            (message.text.isNotEmpty ||
-                message.title.isNotEmpty ||
-                message.sender.isNotEmpty ||
-                message.app.isNotEmpty);
-      })
+          .where(_isValidMessage)
           .toList();
     } catch (_) {
       return [];
     }
   }
 
-  List _extractMessageList(Object? decoded) {
+  Future<List<NativeForwardedMessage>> _getRelayMessages() async {
+    final relayUrl = await _loadRelayUrl();
+
+    if (relayUrl.isEmpty) {
+      return [];
+    }
+
+    try {
+      final uri = Uri.parse(relayUrl);
+      final client = HttpClient();
+
+      client.connectionTimeout = const Duration(seconds: 8);
+
+      final request = await client.getUrl(uri).timeout(
+        const Duration(seconds: 8),
+      );
+
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+
+      final body = await response.transform(utf8.decoder).join();
+
+      client.close(force: true);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return [];
+      }
+
+      final decoded = jsonDecode(body);
+      final list = _extractMessagesList(decoded);
+
+      return list
+          .whereType<Map>()
+          .map((item) {
+        return NativeForwardedMessage.fromJson(
+          Map<String, dynamic>.from(item),
+        );
+      })
+          .where(_isValidMessage)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<String> _loadRelayUrl() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawState = prefs.getString(_pairingStateKey);
+
+      if (rawState == null || rawState.trim().isEmpty) {
+        return '';
+      }
+
+      final decoded = jsonDecode(rawState);
+
+      if (decoded is! Map) {
+        return '';
+      }
+
+      final role = decoded['role']?.toString() ?? '';
+      final relayUrl = decoded['relayUrl']?.toString() ?? '';
+
+      if (role != 'mainPhone') {
+        return '';
+      }
+
+      return relayUrl.trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  List _extractMessagesList(Object? decoded) {
     if (decoded is List) {
       return decoded;
     }
 
     if (decoded is Map) {
-      final messages = decoded['messages'];
-      if (messages is List) {
-        return messages;
-      }
-
       final events = decoded['events'];
+      final messages = decoded['messages'];
+      final data = decoded['data'];
+
       if (events is List) {
         return events;
       }
 
-      final data = decoded['data'];
-      if (data is List) {
-        return data;
+      if (messages is List) {
+        return messages;
       }
 
-      if (data is Map) {
-        final dataMessages = data['messages'];
-        if (dataMessages is List) {
-          return dataMessages;
-        }
-
-        final dataEvents = data['events'];
-        if (dataEvents is List) {
-          return dataEvents;
-        }
+      if (data is List) {
+        return data;
       }
     }
 
     return [];
+  }
+
+  Future<bool> _invokeBool(String method) async {
+    try {
+      return await _channel.invokeMethod<bool>(method) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isValidMessage(NativeForwardedMessage message) {
+    return message.type.isNotEmpty &&
+        (message.text.isNotEmpty ||
+            message.title.isNotEmpty ||
+            message.sender.isNotEmpty ||
+            message.app.isNotEmpty);
   }
 
   List<NativeForwardedMessage> _removeDuplicates(
@@ -283,7 +288,7 @@ class MainPhoneFilterSettings {
     );
   }
 
-  Map<String, bool> toJson() {
+  Map<String, dynamic> toJson() {
     return {
       'verificationCodes': verificationCodes,
       'bankMessages': bankMessages,
@@ -416,7 +421,7 @@ class NativeForwardedMessage {
     required this.receivedAt,
   });
 
-  factory NativeForwardedMessage.fromJson(Map<String, dynamic> json) {
+  factory NativeForwardedMessage.fromJson(Map json) {
     return NativeForwardedMessage(
       id: (json['id'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
@@ -468,7 +473,7 @@ class NativeForwardedMessage {
 
   String get dedupeKey {
     if (id.trim().isNotEmpty) {
-      return id.trim();
+      return id.trim().toLowerCase();
     }
 
     return [
