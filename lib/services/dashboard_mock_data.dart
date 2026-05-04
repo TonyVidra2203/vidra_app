@@ -2,68 +2,73 @@ import '../models/device_model.dart';
 import '../models/event_model.dart';
 
 class DashboardMockData {
-  static List<DeviceModel> devices = const [
+  static const List<DeviceModel> devices = [
     DeviceModel(
-      name: 'Redmi Note 11',
+      id: 'samsung-a52',
+      name: 'Samsung A52',
       system: 'Android 13',
       isOnline: true,
-      lastSeen: '10:45',
-      battery: '87%',
+      lastSeen: 'Сейчас',
+      battery: '82%',
+      phoneNumber: '+7 999 111-22-33',
     ),
     DeviceModel(
-      name: 'Samsung S21',
+      id: 'xiaomi-redmi-note-11',
+      name: 'Xiaomi Redmi Note 11',
       system: 'Android 12',
       isOnline: true,
-      lastSeen: '10:43',
-      battery: '65%',
+      lastSeen: '2 мин. назад',
+      battery: '64%',
+      phoneNumber: '+7 999 222-33-44',
     ),
     DeviceModel(
-      name: 'iPhone 12',
-      system: 'iOS 16.3',
-      isOnline: true,
-      lastSeen: '10:42',
-      battery: '75%',
-    ),
-    DeviceModel(
-      name: 'Pixel 6',
+      id: 'pixel-6a',
+      name: 'Google Pixel 6a',
       system: 'Android 14',
       isOnline: false,
-      lastSeen: 'Вчера 22:15',
-      battery: '-',
+      lastSeen: '1 ч. назад',
+      battery: '41%',
+      phoneNumber: '+7 999 333-44-55',
     ),
     DeviceModel(
-      name: 'OnePlus 9',
-      system: 'Android 11',
+      id: 'huawei-p30',
+      name: 'Huawei P30',
+      system: 'Android 10',
       isOnline: false,
-      lastSeen: '2 дня назад',
-      battery: '-',
+      lastSeen: '3 ч. назад',
+      battery: '28%',
+      phoneNumber: '+7 999 444-55-66',
+    ),
+    DeviceModel(
+      id: 'oppo-reno-8',
+      name: 'OPPO Reno 8',
+      system: 'Android 13',
+      isOnline: true,
+      lastSeen: '5 мин. назад',
+      battery: '91%',
+      phoneNumber: '+7 999 555-66-77',
     ),
   ];
 
-  static List<EventModel> events = const [
+  static const List<EventModel> events = [
     EventModel(
-      title: 'Redmi Note 11 подключился',
-      time: '10:45:12',
-      type: EventType.device,
-    ),
-    EventModel(
-      title: 'SMS от +7 999 123-45-67',
-      time: '10:45:10',
+      title: 'SMS от Samsung A52',
+      time: '12:42:10',
       type: EventType.sms,
     ),
     EventModel(
-      title: 'PUSH уведомление отправлено',
-      time: '10:44:55',
+      title: 'PUSH от Xiaomi Redmi Note 11',
+      time: '12:40:03',
       type: EventType.push,
     ),
     EventModel(
-      title: 'Ошибка отправки SMS на iPhone 12',
-      time: '10:44:32',
-      type: EventType.error,
+      title: 'Samsung A52 подключён',
+      time: '12:35:18',
+      type: EventType.device,
     ),
     EventModel(
-      title: 'Устройство iPhone 12 отключено',
-      time: '10:44:10',
+      title: 'Google Pixel 6a offline',
+      time: '11:28:44',
       type: EventType.warning,
     ),
   ];

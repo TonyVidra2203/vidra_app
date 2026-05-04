@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../models/app_mode.dart';
@@ -25,23 +26,31 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
+  static const String _pushNotificationsKey =
+      'dashboard_push_notifications_enabled';
+  static const String _deletedDevicesKey = 'dashboard_deleted_devices';
+
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
   StreamSubscription<dynamic>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
 
+  List<NativeForwardedMessage> latestMessages = [];
   List<DeviceModel> devices = [];
   List<EventModel> events = [];
 
+  Set<String> deletedDeviceIds = {};
+
   bool hasLoadedOnce = false;
   bool isLoading = false;
+  bool pushNotificationsEnabled = true;
 
   @override
   void initState() {
     super.initState();
-
     AppModeService.setMode(AppMode.receiver);
     WidgetsBinding.instance.addObserver(this);
+    _loadSavedSettings();
     _loadDashboardData();
     _listenMessageUpdates();
     _startFallbackRefresh();
@@ -72,6 +81,20 @@ class _DashboardScreenState extends State<DashboardScreen>
       fallbackRefreshTimer?.cancel();
       fallbackRefreshTimer = null;
     }
+  }
+
+  Future<void> _loadSavedSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      pushNotificationsEnabled = prefs.getBool(_pushNotificationsKey) ?? true;
+      deletedDeviceIds = prefs.getStringList(_deletedDevicesKey)?.toSet() ?? {};
+      _rebuildDashboardState();
+    });
   }
 
   void _listenMessageUpdates() {
@@ -109,23 +132,26 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       setState(() {
         hasLoadedOnce = true;
-        devices = _buildDeviceList(messages);
-        events = messages.take(5).map(_mapMessageToEvent).toList();
+        latestMessages = messages;
+        _rebuildDashboardState();
       });
     } finally {
       isLoading = false;
     }
   }
 
-  List<DeviceModel> _buildDeviceList(
-      List<NativeForwardedMessage> messages,
-      ) {
+  void _rebuildDashboardState() {
+    devices = _buildDeviceList(latestMessages);
+    events = latestMessages.take(5).map(_mapMessageToEvent).toList();
+  }
+
+  List<DeviceModel> _buildDeviceList(List<NativeForwardedMessage> messages) {
     final latestByDevice = <String, NativeForwardedMessage>{};
 
     for (final message in messages) {
       final key = _deviceKey(message);
 
-      if (key.isEmpty) {
+      if (key.isEmpty || deletedDeviceIds.contains(key)) {
         continue;
       }
 
@@ -137,12 +163,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     return latestByDevice.values.map((message) {
+      final key = _deviceKey(message);
+
       return DeviceModel(
+        id: key,
         name: _remoteDeviceName(message),
         system: _remoteDeviceSystem(message),
         isOnline: _isRecentlyActive(message.receivedAt),
         lastSeen: _formatLastSeen(message.receivedAt),
         battery: '-',
+        phoneNumber: _phoneNumber(message),
       );
     }).toList();
   }
@@ -205,10 +235,15 @@ class _DashboardScreenState extends State<DashboardScreen>
       return '';
     }
 
-    return text
-        .split(' ')
-        .where((part) => part.trim().isNotEmpty)
-        .join(' ');
+    return text.split(' ').where((part) => part.trim().isNotEmpty).join(' ');
+  }
+
+  String _phoneNumber(NativeForwardedMessage message) {
+    if (message.isSms && message.sender.trim().isNotEmpty) {
+      return message.sender.trim();
+    }
+
+    return 'Не указан';
   }
 
   bool _isRecentlyActive(int receivedAt) {
@@ -284,6 +319,94 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Future<void> _onPushNotificationsChanged(bool value) async {
+    if (value) {
+      final allowed = await nativeService.requestPostNotificationPermission();
+
+      if (!allowed && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Разрешение на PUSH уведомления не выдано'),
+          ),
+        );
+        return;
+      }
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_pushNotificationsKey, value);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      pushNotificationsEnabled = value;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          value
+              ? 'Уведомления о новых сообщениях включены'
+              : 'Уведомления о новых сообщениях выключены',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteDevice(DeviceModel device) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.card,
+          title: const Text(
+            'Удалить устройство?',
+            style: TextStyle(color: AppColors.textPrimary),
+          ),
+          content: Text(
+            'Телефон "${device.name}" будет отвязан от главного телефона.',
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(
+                'Удалить',
+                style: TextStyle(color: AppColors.danger),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    deletedDeviceIds.add(device.id);
+    await prefs.setStringList(_deletedDevicesKey, deletedDeviceIds.toList());
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(_rebuildDashboardState);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Телефон отвязан'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -293,7 +416,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           children: [
             ModeSwitchHeader(
               currentMode: AppMode.receiver,
+              pushNotificationsEnabled: pushNotificationsEnabled,
               onModeChanged: _onModeChanged,
+              onPushNotificationsChanged: _onPushNotificationsChanged,
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -312,7 +437,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                           const SizedBox(height: 12),
                           devices.isEmpty
                               ? const _EmptyDevices()
-                              : DeviceList(devices: devices),
+                              : DeviceList(
+                            devices: devices,
+                            onDeleteDevice: _deleteDevice,
+                          ),
                         ],
                       ),
                     ),

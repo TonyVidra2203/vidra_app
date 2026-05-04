@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_colors.dart';
 import '../../models/event_model.dart';
 
@@ -69,9 +70,10 @@ class EventList extends StatelessWidget {
 
   Color _getColor(EventType type) {
     switch (type) {
-      case EventType.device:
       case EventType.sms:
       case EventType.push:
+        return AppColors.primary;
+      case EventType.device:
         return AppColors.success;
       case EventType.error:
         return AppColors.danger;

@@ -6,11 +6,15 @@ import '../../models/app_mode.dart';
 class ModeSwitchHeader extends StatelessWidget {
   final AppMode currentMode;
   final ValueChanged<AppMode> onModeChanged;
+  final bool pushNotificationsEnabled;
+  final ValueChanged<bool>? onPushNotificationsChanged;
 
   const ModeSwitchHeader({
     super.key,
     required this.currentMode,
     required this.onModeChanged,
+    this.pushNotificationsEnabled = true,
+    this.onPushNotificationsChanged,
   });
 
   @override
@@ -52,6 +56,11 @@ class ModeSwitchHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onPushNotificationsChanged != null)
+                _PushNotificationSwitch(
+                  value: pushNotificationsEnabled,
+                  onChanged: onPushNotificationsChanged!,
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -61,6 +70,38 @@ class ModeSwitchHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PushNotificationSwitch extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _PushNotificationSwitch({
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          value ? Icons.notifications_active : Icons.notifications_off,
+          color: value ? AppColors.primary : AppColors.textSecondary,
+          size: 22,
+        ),
+        const SizedBox(width: 6),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeColor: AppColors.primary,
+          activeTrackColor: AppColors.primary.withOpacity(0.35),
+          inactiveThumbColor: AppColors.textSecondary,
+          inactiveTrackColor: AppColors.cardBorder,
+        ),
+      ],
     );
   }
 }
@@ -93,8 +134,7 @@ class _ModeSegmentSwitch extends StatelessWidget {
           AnimatedAlign(
             duration: const Duration(milliseconds: 230),
             curve: Curves.easeOutCubic,
-            alignment:
-            isReceiver ? Alignment.centerLeft : Alignment.centerRight,
+            alignment: isReceiver ? Alignment.centerLeft : Alignment.centerRight,
             child: FractionallySizedBox(
               widthFactor: 0.5,
               child: Container(
