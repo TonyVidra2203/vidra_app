@@ -21,7 +21,7 @@ class _SplashScreenState extends State<SplashScreen> {
     Timer(_duration, () {
       if (!mounted) return;
 
-      Navigator.of(context).pushReplacementNamed(AppRoutes.modeSelection);
+      Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard);
     });
   }
 

@@ -7,18 +7,18 @@ extension AppModeTitle on AppMode {
   String get title {
     switch (this) {
       case AppMode.receiver:
-        return 'Главный телефон';
+        return 'Приём';
       case AppMode.sender:
-        return 'Рабочий телефон';
+        return 'Передача';
     }
   }
 
   String get subtitle {
     switch (this) {
       case AppMode.receiver:
-        return 'Принимает и показывает SMS/PUSH с других устройств';
+        return 'Принимает и показывает SMS/PUSH';
       case AppMode.sender:
-        return 'Отправляет SMS/PUSH на главный телефон';
+        return 'Отправляет SMS/PUSH на другой телефон';
     }
   }
 }

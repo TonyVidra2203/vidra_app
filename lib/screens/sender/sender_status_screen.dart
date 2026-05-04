@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../models/app_mode.dart';
+import '../../services/app_mode_service.dart';
 import '../../services/native_main_phone_service.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
+import '../../widgets/common/mode_switch_header.dart';
+import '../dashboard/dashboard_screen.dart';
 import '../pairing/device_pairing_screen.dart';
 import 'sender_permissions_screen.dart';
 import 'sender_settings_screen.dart';
@@ -13,11 +17,10 @@ class SenderStatusScreen extends StatefulWidget {
   const SenderStatusScreen({super.key});
 
   @override
-  State<SenderStatusScreen> createState() => _SenderStatusScreenState();
+  State createState() => _SenderStatusScreenState();
 }
 
-class _SenderStatusScreenState extends State<SenderStatusScreen>
-    with WidgetsBindingObserver {
+class _SenderStatusScreenState extends State with WidgetsBindingObserver {
   final SenderSettingsService settingsService = const SenderSettingsService();
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
@@ -29,32 +32,44 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   );
 
   MainPhoneNativeStatus nativeStatus = const MainPhoneNativeStatus();
-  List<NativeForwardedMessage> messages = [];
+
+  List messages = [];
   bool isLoading = true;
 
-  bool get hasActiveForwarding =>
-      settings.smsForwarding || settings.pushForwarding;
+  bool get hasActiveForwarding {
+    return settings.smsForwarding || settings.pushForwarding;
+  }
 
-  bool get isSmsReady => !settings.smsForwarding || nativeStatus.smsPermission;
+  bool get isSmsReady {
+    return !settings.smsForwarding || nativeStatus.smsPermission;
+  }
 
-  bool get isPushReady =>
-      !settings.pushForwarding || nativeStatus.notificationListener;
+  bool get isPushReady {
+    return !settings.pushForwarding || nativeStatus.notificationListener;
+  }
 
-  bool get isBackgroundReady =>
-      !settings.backgroundMode || nativeStatus.batteryOptimizationDisabled;
+  bool get isBackgroundReady {
+    return !settings.backgroundMode ||
+        nativeStatus.batteryOptimizationDisabled;
+  }
 
-  bool get isRelayReady => nativeStatus.relayConfigured;
+  bool get isRelayReady {
+    return nativeStatus.relayConfigured;
+  }
 
-  bool get isReady =>
-      hasActiveForwarding &&
-          isSmsReady &&
-          isPushReady &&
-          isBackgroundReady &&
-          isRelayReady;
+  bool get isReady {
+    return hasActiveForwarding &&
+        isSmsReady &&
+        isPushReady &&
+        isBackgroundReady &&
+        isRelayReady;
+  }
 
   @override
   void initState() {
     super.initState();
+
+    AppModeService.setMode(AppMode.sender);
     WidgetsBinding.instance.addObserver(this);
     _loadStatus();
   }
@@ -72,7 +87,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     }
   }
 
-  Future<void> _loadStatus() async {
+  Future _loadStatus() async {
     final loadedSettings = await settingsService.load();
     final loadedStatus = await nativeService.getStatus();
     final loadedMessages = await nativeService.getMessages();
@@ -89,12 +104,12 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     });
   }
 
-  Future<void> _clearMessages() async {
+  Future _clearMessages() async {
     await nativeService.clearMessages();
     await _loadStatus();
   }
 
-  Future<void> _openPairingScreen() async {
+  Future _openPairingScreen() async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -128,17 +143,32 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     );
   }
 
+  void _onModeChanged(AppMode mode) {
+    if (mode == AppMode.sender) {
+      return;
+    }
+
+    AppModeService.setMode(AppMode.receiver);
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const DashboardScreen(),
+      ),
+    );
+  }
+
   String _mainStatusTitle() {
     if (!hasActiveForwarding) {
       return 'Передача отключена';
     }
 
     if (!isRelayReady) {
-      return 'Рабочий телефон не привязан';
+      return 'Телефон не привязан';
     }
 
     if (isReady) {
-      return 'Рабочий телефон подключён';
+      return 'Передача активна';
     }
 
     return 'Требуется настройка';
@@ -150,11 +180,11 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     }
 
     if (!isRelayReady) {
-      return 'Подключи этот телефон к главному через код связки';
+      return 'Подключи этот телефон через код связки';
     }
 
     if (isReady) {
-      return 'Android принимает SMS/PUSH и отправляет их на главный телефон';
+      return 'Android принимает SMS/PUSH и отправляет их дальше';
     }
 
     return 'Проверь разрешения Android и фоновую работу';
@@ -191,7 +221,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
       body: SafeArea(
         child: Column(
           children: [
-            const _Header(),
+            ModeSwitchHeader(
+              currentMode: AppMode.sender,
+              onModeChanged: _onModeChanged,
+            ),
             Expanded(
               child: isLoading
                   ? const Center(
@@ -236,7 +269,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
                         ),
                         _StatusRow(
                           title: 'Фоновая работа',
-                          subtitle: nativeStatus.batteryOptimizationDisabled
+                          subtitle:
+                          nativeStatus.batteryOptimizationDisabled
                               ? 'Ограничение батареи отключено'
                               : 'Android может остановить приложение',
                           isReady:
@@ -263,10 +297,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
                           isReady: settings.pushForwarding,
                         ),
                         _StatusRow(
-                          title: 'Связка с главным телефоном',
+                          title: 'Связка',
                           subtitle: nativeStatus.relayConfigured
-                              ? 'Адрес главного телефона сохранён'
-                              : 'Рабочий телефон ещё не подключён',
+                              ? 'Адрес приёма сохранён'
+                              : 'Телефон ещё не подключён',
                           isReady: nativeStatus.relayConfigured,
                         ),
                         _StatusRow(
@@ -307,27 +341,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
       bottomNavigationBar: SenderBottomNavBar(
         currentIndex: 0,
         onTap: (index) => _onNavTap(context, index),
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
-      child: Center(
-        child: Text(
-          'Рабочий телефон',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
       ),
     );
   }
@@ -418,8 +431,8 @@ class _PairingCard extends StatelessWidget {
                   children: [
                     Text(
                       isConnected
-                          ? 'Подключение к главному активно'
-                          : 'Подключить к главному телефону',
+                          ? 'Связка активна'
+                          : 'Подключить передачу',
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 16,
@@ -429,8 +442,8 @@ class _PairingCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       isConnected
-                          ? 'SMS и PUSH будут уходить на связанный главный телефон'
-                          : 'Введи код связки и адрес сервера с главного телефона',
+                          ? 'SMS и PUSH будут уходить на выбранный адрес'
+                          : 'Введи код связки и адрес сервера приёма',
                       style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 12,
@@ -473,7 +486,7 @@ class _PairingCard extends StatelessWidget {
 
 class _StatusGroupCard extends StatelessWidget {
   final String title;
-  final List<Widget> children;
+  final List children;
 
   const _StatusGroupCard({
     required this.title,
@@ -637,7 +650,7 @@ class _CounterItem extends StatelessWidget {
 }
 
 class _MessagesCard extends StatelessWidget {
-  final List<NativeForwardedMessage> messages;
+  final List messages;
   final VoidCallback? onClear;
 
   const _MessagesCard({
@@ -697,7 +710,9 @@ class _MessageRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = message.isSms ? Icons.sms_outlined : Icons.notifications_none;
+    final icon = message.isSms
+        ? Icons.sms_outlined
+        : Icons.notifications_none;
     final label = message.isSms ? 'SMS' : 'PUSH';
 
     return Padding(

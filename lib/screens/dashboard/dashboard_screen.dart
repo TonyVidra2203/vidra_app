@@ -3,14 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../models/app_mode.dart';
 import '../../models/device_model.dart';
 import '../../models/event_model.dart';
 import '../../navigation/app_routes.dart';
+import '../../services/app_mode_service.dart';
 import '../../services/native_main_phone_service.dart';
 import '../../widgets/common/app_bottom_nav_bar.dart';
 import '../../widgets/common/app_card.dart';
+import '../../widgets/common/mode_switch_header.dart';
 import '../../widgets/dashboard/device_list.dart';
 import '../../widgets/dashboard/event_list.dart';
+import '../sender/sender_status_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -23,7 +27,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
 
-  StreamSubscription<void>? messageUpdatesSubscription;
+  StreamSubscription<dynamic>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
 
   List<DeviceModel> devices = [];
@@ -35,6 +39,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+
+    AppModeService.setMode(AppMode.receiver);
     WidgetsBinding.instance.addObserver(this);
     _loadDashboardData();
     _listenMessageUpdates();
@@ -111,7 +117,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  List<DeviceModel> _buildDeviceList(List<NativeForwardedMessage> messages) {
+  List<DeviceModel> _buildDeviceList(
+      List<NativeForwardedMessage> messages,
+      ) {
     final latestByDevice = <String, NativeForwardedMessage>{};
 
     for (final message in messages) {
@@ -160,7 +168,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       return message.deviceName.trim();
     }
 
-    return 'Рабочий телефон';
+    return 'Телефон передачи';
   }
 
   String _remoteDeviceSystem(NativeForwardedMessage message) {
@@ -197,7 +205,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       return '';
     }
 
-    return text.split(' ').where((part) => part.trim().isNotEmpty).join(' ');
+    return text
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .join(' ');
   }
 
   bool _isRecentlyActive(int receivedAt) {
@@ -254,15 +265,23 @@ class _DashboardScreenState extends State<DashboardScreen>
         '${date.minute.toString().padLeft(2, '0')}';
   }
 
-  void _openModeSelection() {
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      AppRoutes.modeSelection,
-          (route) => false,
-    );
-  }
-
   void _openDevicePairing() {
     Navigator.of(context).pushNamed(AppRoutes.devicePairing);
+  }
+
+  void _onModeChanged(AppMode mode) {
+    if (mode == AppMode.receiver) {
+      return;
+    }
+
+    AppModeService.setMode(AppMode.sender);
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SenderStatusScreen(),
+      ),
+    );
   }
 
   @override
@@ -272,8 +291,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       body: SafeArea(
         child: Column(
           children: [
-            _Header(
-              onMenuPressed: _openModeSelection,
+            ModeSwitchHeader(
+              currentMode: AppMode.receiver,
+              onModeChanged: _onModeChanged,
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -321,70 +341,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  final VoidCallback onMenuPressed;
-
-  const _Header({
-    required this.onMenuPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 42,
-            height: 42,
-            child: OutlinedButton(
-              onPressed: onMenuPressed,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary),
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: const Icon(
-                Icons.menu,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(width: 18),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'VidRA',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'SMS & PUSH Forwarder',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -470,7 +426,7 @@ class _EmptyDevices extends StatelessWidget {
             ),
             SizedBox(height: 6),
             Text(
-              'Рабочие телефоны появятся здесь после первого SMS или PUSH',
+              'Телефоны передачи появятся здесь после первого SMS или PUSH',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary,
