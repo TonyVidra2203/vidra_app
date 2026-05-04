@@ -35,9 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-
     WidgetsBinding.instance.addObserver(this);
-
     _loadDashboardData();
     _listenMessageUpdates();
     _startFallbackRefresh();
@@ -48,7 +46,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     messageUpdatesSubscription?.cancel();
     fallbackRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-
     super.dispose();
   }
 
@@ -66,7 +63,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         state == AppLifecycleState.detached) {
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
-
       fallbackRefreshTimer?.cancel();
       fallbackRefreshTimer = null;
     }
@@ -74,7 +70,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _listenMessageUpdates() {
     messageUpdatesSubscription?.cancel();
-
     messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
       _loadDashboardData();
     });
@@ -82,7 +77,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _startFallbackRefresh() {
     fallbackRefreshTimer?.cancel();
-
     fallbackRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
           (_) => _loadDashboardData(),
@@ -235,8 +229,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   String _formatLastSeen(int receivedAt) {
     final date = DateTime.fromMillisecondsSinceEpoch(receivedAt);
-    final now = DateTime.now();
-    final difference = now.difference(date);
+    final difference = DateTime.now().difference(date);
 
     if (difference.inSeconds < 10) {
       return 'Сейчас';
@@ -268,6 +261,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  void _openDevicePairing() {
+    Navigator.of(context).pushNamed(AppRoutes.devicePairing);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -275,23 +272,22 @@ class _DashboardScreenState extends State<DashboardScreen>
       body: SafeArea(
         child: Column(
           children: [
-            const _Header(),
+            _Header(
+              onMenuPressed: _openModeSelection,
+            ),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _ModeSelectionButton(
-                      onPressed: _openModeSelection,
-                    ),
-                    const SizedBox(height: 16),
                     AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const _CardTitle(
+                          _CardTitle(
                             title: 'Устройства',
-                            action: 'Подключённые',
+                            action: 'Добавить',
+                            onActionPressed: _openDevicePairing,
                           ),
                           const SizedBox(height: 12),
                           devices.isEmpty
@@ -331,35 +327,55 @@ class _DashboardScreenState extends State<DashboardScreen>
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+  final VoidCallback onMenuPressed;
+
+  const _Header({
+    required this.onMenuPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
       child: Row(
         children: [
-          Icon(
-            Icons.menu,
-            color: AppColors.primary,
-            size: 32,
+          SizedBox(
+            width: 42,
+            height: 42,
+            child: OutlinedButton(
+              onPressed: onMenuPressed,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: const Icon(
+                Icons.menu,
+                size: 24,
+              ),
+            ),
           ),
-          SizedBox(width: 18),
-          Expanded(
+          const SizedBox(width: 18),
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Дашборд',
+                  'VidRA',
                   style: TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: 26,
+                    fontSize: 28,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'Главный телефон (прием данных)',
+                  'SMS & PUSH Forwarder',
                   style: TextStyle(
                     color: AppColors.primary,
                     fontSize: 15,
@@ -368,47 +384,7 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          Icon(
-            Icons.notifications_none,
-            color: AppColors.primary,
-            size: 32,
-          ),
         ],
-      ),
-    );
-  }
-}
-
-class _ModeSelectionButton extends StatelessWidget {
-  final VoidCallback onPressed;
-
-  const _ModeSelectionButton({
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.swap_horiz),
-        label: const Text('Выбрать тип телефона'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          side: const BorderSide(color: AppColors.primary),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
       ),
     );
   }
@@ -417,14 +393,25 @@ class _ModeSelectionButton extends StatelessWidget {
 class _CardTitle extends StatelessWidget {
   final String title;
   final String action;
+  final VoidCallback? onActionPressed;
 
   const _CardTitle({
     required this.title,
     required this.action,
+    this.onActionPressed,
   });
 
   @override
   Widget build(BuildContext context) {
+    final actionText = Text(
+      action,
+      style: const TextStyle(
+        color: AppColors.primary,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
     return Row(
       children: [
         Text(
@@ -436,12 +423,21 @@ class _CardTitle extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        Text(
-          action,
-          style: const TextStyle(
-            color: AppColors.primary,
-            fontSize: 14,
+        onActionPressed == null
+            ? actionText
+            : TextButton.icon(
+          onPressed: onActionPressed,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
+          icon: const Icon(
+            Icons.add,
+            size: 18,
+          ),
+          label: actionText,
         ),
       ],
     );
