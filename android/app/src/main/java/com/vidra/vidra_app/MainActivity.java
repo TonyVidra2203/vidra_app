@@ -49,8 +49,7 @@ public class MainActivity extends FlutterActivity {
     private static final String KEY_VERIFICATION_CODES = "verificationCodes";
     private static final String KEY_BANK_MESSAGES = "bankMessages";
     private static final String KEY_AD_SMS = "adSms";
-    private static final String KEY_INTERNATIONAL_NUMBERS =
-            "internationalNumbers";
+    private static final String KEY_INTERNATIONAL_NUMBERS = "internationalNumbers";
     private static final String KEY_CRYPTO_SPAM = "cryptoSpam";
     private static final String KEY_BLACKLIST = "blacklist";
 
@@ -194,6 +193,7 @@ public class MainActivity extends FlutterActivity {
         });
 
         registerNativeEventsReceiver();
+        syncRelayPollingState();
     }
 
     @Override
@@ -317,8 +317,7 @@ public class MainActivity extends FlutterActivity {
                 return false;
             }
 
-            return enabledListeners.toLowerCase()
-                    .contains(packageName.toLowerCase());
+            return enabledListeners.toLowerCase().contains(packageName.toLowerCase());
         } catch (Exception e) {
             return false;
         }
@@ -396,6 +395,9 @@ public class MainActivity extends FlutterActivity {
             String relayUrl,
             String relayApiKey
     ) {
+        String cleanRelayUrl = cleanOrDefault(relayUrl, "");
+        String cleanDeviceId = cleanOrDefault(deviceId, "");
+
         SharedPreferences prefs = getSharedPreferences(
                 SETTINGS_PREFS,
                 Context.MODE_PRIVATE
@@ -425,10 +427,32 @@ public class MainActivity extends FlutterActivity {
                                 Build.MANUFACTURER + " " + Build.MODEL
                         )
                 )
-                .putString(KEY_DEVICE_ID, cleanOrDefault(deviceId, ""))
-                .putString(KEY_RELAY_URL, cleanOrDefault(relayUrl, ""))
+                .putString(KEY_DEVICE_ID, cleanDeviceId)
+                .putString(KEY_RELAY_URL, cleanRelayUrl)
                 .putString(KEY_RELAY_API_KEY, cleanOrDefault(relayApiKey, ""))
                 .apply();
+
+        syncRelayPollingState(cleanRelayUrl, cleanDeviceId);
+    }
+
+    private void syncRelayPollingState() {
+        SharedPreferences prefs = getSharedPreferences(
+                SETTINGS_PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        String relayUrl = cleanOrDefault(prefs.getString(KEY_RELAY_URL, ""), "");
+        String deviceId = cleanOrDefault(prefs.getString(KEY_DEVICE_ID, ""), "");
+
+        syncRelayPollingState(relayUrl, deviceId);
+    }
+
+    private void syncRelayPollingState(String relayUrl, String deviceId) {
+        if (!relayUrl.isEmpty() && deviceId.isEmpty()) {
+            RelayPollingReceiver.schedule(this);
+        } else {
+            RelayPollingReceiver.cancel(this);
+        }
     }
 
     private void saveFilterSettings(
@@ -504,7 +528,6 @@ public class MainActivity extends FlutterActivity {
                     SETTINGS_PREFS,
                     Context.MODE_PRIVATE
             );
-
             SharedPreferences storage = getSharedPreferences(
                     STORAGE_PREFS,
                     Context.MODE_PRIVATE
@@ -513,9 +536,17 @@ public class MainActivity extends FlutterActivity {
             JSONArray smsMessages = new JSONArray(
                     storage.getString(SMS_LIST_KEY, "[]")
             );
-
             JSONArray pushMessages = new JSONArray(
                     storage.getString(PUSH_LIST_KEY, "[]")
+            );
+
+            String relayUrl = cleanOrDefault(
+                    settings.getString(KEY_RELAY_URL, ""),
+                    ""
+            );
+            String deviceId = cleanOrDefault(
+                    settings.getString(KEY_DEVICE_ID, ""),
+                    ""
             );
 
             status.put("smsPermission", hasSmsPermissions());
@@ -548,11 +579,9 @@ public class MainActivity extends FlutterActivity {
                             Build.MANUFACTURER + " " + Build.MODEL
                     )
             );
-            status.put("deviceId", settings.getString(KEY_DEVICE_ID, ""));
-            status.put(
-                    "relayConfigured",
-                    !settings.getString(KEY_RELAY_URL, "").trim().isEmpty()
-            );
+            status.put("deviceId", deviceId);
+            status.put("relayConfigured", !relayUrl.isEmpty());
+            status.put("relayPollingEnabled", !relayUrl.isEmpty() && deviceId.isEmpty());
             status.put("smsCount", smsMessages.length());
             status.put("pushCount", pushMessages.length());
         } catch (Exception ignored) {
@@ -573,7 +602,6 @@ public class MainActivity extends FlutterActivity {
             JSONArray smsMessages = new JSONArray(
                     storage.getString(SMS_LIST_KEY, "[]")
             );
-
             JSONArray pushMessages = new JSONArray(
                     storage.getString(PUSH_LIST_KEY, "[]")
             );

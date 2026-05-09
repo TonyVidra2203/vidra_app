@@ -23,8 +23,8 @@ public class BootReceiver extends BroadcastReceiver {
                 || Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             Log.d(TAG, "Boot/package event received: " + action);
-
             requestNotificationListenerRebind(context);
+            RelayPollingReceiver.schedule(context);
             MainActivity.notifyMessagesUpdated(context);
         }
     }
@@ -41,7 +41,6 @@ public class BootReceiver extends BroadcastReceiver {
             );
 
             NotificationListenerService.requestRebind(componentName);
-
             Log.d(TAG, "Notification listener rebind requested");
         } catch (Exception e) {
             Log.e(TAG, "Failed to request notification listener rebind", e);
