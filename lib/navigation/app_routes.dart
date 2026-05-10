@@ -6,4 +6,5 @@ class AppRoutes {
   static const filters = '/filters';
   static const settings = '/settings';
   static const devicePairing = '/device-pairing';
+  static const qrPairingScanner = '/qr-pairing-scanner';
 }

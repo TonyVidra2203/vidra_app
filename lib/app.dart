@@ -8,6 +8,7 @@ import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/filters/filters_screen.dart';
 import 'screens/messages/messages_screen.dart';
 import 'screens/pairing/device_pairing_screen.dart';
+import 'screens/pairing/qr_pairing_scanner_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/splash/splash_screen.dart';
 
@@ -37,6 +38,7 @@ class App extends StatelessWidget {
         AppRoutes.filters: (context) => const FiltersScreen(),
         AppRoutes.settings: (context) => const SettingsScreen(),
         AppRoutes.devicePairing: (context) => const DevicePairingScreen(),
+        AppRoutes.qrPairingScanner: (context) => const QrPairingScannerScreen(),
       },
     );
   }

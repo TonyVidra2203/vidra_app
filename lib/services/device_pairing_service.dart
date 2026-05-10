@@ -75,7 +75,7 @@ class DevicePairingState {
     );
   }
 
-  Map<String, dynamic> toJson() {
+  Map<String, Object?> toJson() {
     return {
       'role': role.name,
       'status': status.name,
@@ -88,7 +88,7 @@ class DevicePairingState {
     };
   }
 
-  factory DevicePairingState.fromJson(Map<dynamic, dynamic> json) {
+  factory DevicePairingState.fromJson(Map<String, Object?> json) {
     return DevicePairingState(
       role: _roleFromString(json['role']?.toString()),
       status: _statusFromString(json['status']?.toString()),
@@ -116,13 +116,75 @@ class DevicePairingState {
   }
 }
 
+class DevicePairingQrPayload {
+  final String pairCode;
+  final String serverUrl;
+  final String mainDeviceName;
+
+  const DevicePairingQrPayload({
+    required this.pairCode,
+    required this.serverUrl,
+    required this.mainDeviceName,
+  });
+
+  bool get isValid => pairCode.trim().isNotEmpty && serverUrl.trim().isNotEmpty;
+
+  String toQrValue() {
+    return jsonEncode({
+      'type': 'vidra_pairing',
+      'version': 1,
+      'pairCode': pairCode,
+      'serverUrl': serverUrl,
+      'mainDeviceName': mainDeviceName,
+    });
+  }
+
+  static DevicePairingQrPayload? fromQrValue(String value) {
+    final trimmed = value.trim();
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map) {
+        final type = decoded['type']?.toString();
+        final pairCode = decoded['pairCode']?.toString() ?? '';
+        final serverUrl = decoded['serverUrl']?.toString() ?? '';
+        final mainDeviceName = decoded['mainDeviceName']?.toString() ?? '';
+
+        if (type == 'vidra_pairing' && pairCode.isNotEmpty && serverUrl.isNotEmpty) {
+          return DevicePairingQrPayload(
+            pairCode: pairCode,
+            serverUrl: serverUrl,
+            mainDeviceName: mainDeviceName,
+          );
+        }
+      }
+    } catch (_) {}
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.scheme == 'vidra' && uri.host == 'pair') {
+      final pairCode = uri.queryParameters['code'] ?? '';
+      final serverUrl = uri.queryParameters['server'] ?? '';
+      final mainDeviceName = uri.queryParameters['name'] ?? '';
+
+      if (pairCode.isNotEmpty && serverUrl.isNotEmpty) {
+        return DevicePairingQrPayload(
+          pairCode: pairCode,
+          serverUrl: serverUrl,
+          mainDeviceName: mainDeviceName,
+        );
+      }
+    }
+
+    return null;
+  }
+}
+
 class DevicePairingService {
   static const MethodChannel _channel = MethodChannel(
     'vidra/android_permissions',
   );
 
   static const String _storageKey = 'device_pairing_state';
-
   static const String _senderSmsForwardingKey = 'sender_sms_forwarding';
   static const String _senderPushForwardingKey = 'sender_push_forwarding';
   static const String _senderBackgroundModeKey = 'sender_background_mode';
@@ -145,7 +207,7 @@ class DevicePairingService {
     try {
       final decoded = jsonDecode(rawValue);
       if (decoded is Map) {
-        return DevicePairingState.fromJson(decoded);
+        return DevicePairingState.fromJson(Map<String, Object?>.from(decoded));
       }
     } catch (_) {}
 
@@ -235,6 +297,17 @@ class DevicePairingService {
     return state;
   }
 
+  Future<DevicePairingState> connectWorkerPhoneFromQr({
+    required String deviceName,
+    required DevicePairingQrPayload payload,
+  }) {
+    return connectWorkerPhone(
+      deviceName: deviceName,
+      pairCode: payload.pairCode,
+      serverUrl: payload.serverUrl,
+    );
+  }
+
   Future<DevicePairingState> confirmWorkerPhone() async {
     final currentState = await loadState();
 
@@ -278,6 +351,20 @@ class DevicePairingService {
     await _saveMainPhoneSettings(state);
 
     return state;
+  }
+
+  DevicePairingQrPayload createQrPayload(DevicePairingState state) {
+    if (!state.isMainPhone || state.pairCode.trim().isEmpty || state.relayUrl.trim().isEmpty) {
+      throw const DevicePairingException(
+        'Сначала создайте код на главном телефоне.',
+      );
+    }
+
+    return DevicePairingQrPayload(
+      pairCode: state.pairCode,
+      serverUrl: _extractServerUrl(state.relayUrl),
+      mainDeviceName: state.deviceName,
+    );
   }
 
   Future<String> detectWorkerDeviceName(DevicePairingState state) async {
@@ -400,7 +487,7 @@ class DevicePairingService {
     } catch (_) {}
   }
 
-  Future<List<Map<String, dynamic>>> _loadRelayEvents(String relayUrl) async {
+  Future<List<Map<String, Object?>>> _loadRelayEvents(String relayUrl) async {
     final cleanedRelayUrl = relayUrl.trim();
 
     if (cleanedRelayUrl.isEmpty) {
@@ -411,17 +498,20 @@ class DevicePairingService {
 
     try {
       final uri = Uri.parse(cleanedRelayUrl);
+
       client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 6);
 
       final request = await client.getUrl(uri).timeout(
         const Duration(seconds: 6),
       );
+
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
 
       final response = await request.close().timeout(
         const Duration(seconds: 6),
       );
+
       final body = await response.transform(utf8.decoder).join();
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -433,7 +523,7 @@ class DevicePairingService {
 
       return list
           .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
+          .map((item) => Map<String, Object?>.from(item))
           .toList();
     } catch (_) {
       return [];
@@ -442,7 +532,7 @@ class DevicePairingService {
     }
   }
 
-  List<dynamic> _extractEventsList(Object? decoded) {
+  List<Object?> _extractEventsList(Object? decoded) {
     if (decoded is List) {
       return decoded;
     }
@@ -477,6 +567,7 @@ class DevicePairingService {
     }
 
     final deviceId = _generateDeviceId();
+
     await prefs.setString(_senderDeviceIdKey, deviceId);
 
     return deviceId;
@@ -485,6 +576,22 @@ class DevicePairingService {
   String _buildRelayUrl(String serverUrl, String pairCode) {
     final base = serverUrl.trim().replaceAll(RegExp(r'/+$'), '');
     return '$base/events/$pairCode';
+  }
+
+  String _extractServerUrl(String relayUrl) {
+    final cleaned = relayUrl.trim();
+
+    if (cleaned.isEmpty) {
+      return '';
+    }
+
+    const marker = '/events/';
+
+    if (!cleaned.contains(marker)) {
+      return cleaned;
+    }
+
+    return cleaned.split(marker).first;
   }
 
   String _generatePairCode() {
@@ -497,6 +604,7 @@ class DevicePairingService {
     final random = Random.secure();
     final time = DateTime.now().millisecondsSinceEpoch;
     final randomPart = random.nextInt(999999).toString().padLeft(6, '0');
+
     return 'vidra_$time$randomPart';
   }
 

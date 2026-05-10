@@ -8,6 +8,7 @@ import '../../models/app_mode.dart';
 import '../../models/device_model.dart';
 import '../../models/event_model.dart';
 import '../../navigation/app_routes.dart';
+import '../../screens/pairing/device_pairing_screen.dart';
 import '../../services/app_mode_service.dart';
 import '../../services/device_pairing_service.dart';
 import '../../services/native_main_phone_service.dart';
@@ -347,7 +348,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _openDevicePairing() {
-    Navigator.of(context).pushNamed(AppRoutes.devicePairing).then((_) {
+    Navigator.of(context)
+        .pushNamed(
+      AppRoutes.devicePairing,
+      arguments: const DevicePairingScreenArguments(
+        openScannerOnStart: true,
+      ),
+    )
+        .then((_) {
       if (mounted) {
         _loadDashboardData();
       }
