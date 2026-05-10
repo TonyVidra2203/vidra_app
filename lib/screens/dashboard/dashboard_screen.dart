@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
   final DevicePairingService pairingService = DevicePairingService();
 
-  StreamSubscription<void>? messageUpdatesSubscription;
+  StreamSubscription? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
 
   List<NativeForwardedMessage> latestMessages = [];
@@ -82,6 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         state == AppLifecycleState.detached) {
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
+
       fallbackRefreshTimer?.cancel();
       fallbackRefreshTimer = null;
     }
@@ -103,6 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _listenMessageUpdates() {
     messageUpdatesSubscription?.cancel();
+
     messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
       _loadDashboardData();
     });
@@ -110,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _startFallbackRefresh() {
     fallbackRefreshTimer?.cancel();
+
     fallbackRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
           (_) => _loadDashboardData(),
@@ -182,7 +185,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         isOnline: _isRecentlyActive(message.receivedAt),
         lastSeen: _formatLastSeen(message.receivedAt),
         battery: '-',
-        phoneNumber: _phoneNumber(message),
+        phoneNumber: _devicePhoneNumber(message),
       );
     }).toList();
 
@@ -203,7 +206,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     final pairedName = pairingState.pairedDeviceName.trim().isEmpty
-        ? 'Рабочий телефон'
+        ? 'Телефон передачи'
         : pairingState.pairedDeviceName.trim();
 
     final pairCode = pairingState.pairCode.trim();
@@ -216,8 +219,26 @@ class _DashboardScreenState extends State<DashboardScreen>
       isOnline: true,
       lastSeen: 'Только что привязан',
       battery: '-',
-      phoneNumber: 'Не указан',
+      phoneNumber: _findPhoneNumberForDevice(pairedName),
     );
+  }
+
+  String _findPhoneNumberForDevice(String deviceName) {
+    final cleanDeviceName = deviceName.trim().toLowerCase();
+
+    for (final message in latestMessages) {
+      final messageDeviceName = message.deviceName.trim().toLowerCase();
+
+      if (messageDeviceName == cleanDeviceName) {
+        final phone = _devicePhoneNumber(message);
+
+        if (phone != 'Не указан') {
+          return phone;
+        }
+      }
+    }
+
+    return 'Не указан';
   }
 
   String _deviceKey(NativeForwardedMessage message) {
@@ -281,9 +302,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     return text.split(' ').where((part) => part.trim().isNotEmpty).join(' ');
   }
 
-  String _phoneNumber(NativeForwardedMessage message) {
-    if (message.isSms && message.sender.trim().isNotEmpty) {
-      return message.sender.trim();
+  String _devicePhoneNumber(NativeForwardedMessage message) {
+    final sender = message.sender.trim();
+
+    if (message.isSms && sender.isNotEmpty) {
+      return sender;
     }
 
     return 'Не указан';
@@ -360,7 +383,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Добавить рабочий телефон',
+                  'Добавить телефон передачи',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 20,
@@ -369,8 +392,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Отсканируйте QR-код с рабочего телефона.\n'
-                      'Если камеры нет — сгенерируйте код вручную.',
+                  'Отсканируйте QR-код с телефона передачи. '
+                      'Если камеры нет — создайте код вручную.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: AppColors.textSecondary,
@@ -381,7 +404,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 _PairingOptionTile(
                   icon: Icons.qr_code_scanner,
                   title: 'Сканировать QR-код',
-                  subtitle: 'Открыть камеру и считать QR с рабочего телефона',
+                  subtitle: 'Считать QR с телефона передачи',
                   onTap: () {
                     Navigator.of(context).pop(_PairingAction.scanQr);
                   },
@@ -389,7 +412,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 const SizedBox(height: 10),
                 _PairingOptionTile(
                   icon: Icons.pin,
-                  title: 'Сгенерировать код связки',
+                  title: 'Создать код связки',
                   subtitle: 'Запасной вариант без камеры',
                   onTap: () {
                     Navigator.of(context).pop(_PairingAction.generateCode);
@@ -430,7 +453,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       return;
     }
 
-    _showSnackBar('Это не QR-код рабочего телефона VidRA.');
+    _showSnackBar('Это не QR-код телефона передачи VidRA.');
   }
 
   Future<void> _createMainPhoneCode({
@@ -506,14 +529,14 @@ class _DashboardScreenState extends State<DashboardScreen>
               Navigator.of(sheetContext!).pop();
             }
 
-            _showSnackBar('Рабочий телефон привязан.');
+            _showSnackBar('Телефон передачи привязан.');
           }
         } catch (_) {}
       },
     );
 
     try {
-      await showModalBottomSheet<void>(
+      await showModalBottomSheet(
         context: context,
         isScrollControlled: true,
         backgroundColor: AppColors.card,
@@ -524,6 +547,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         ),
         builder: (context) {
           sheetContext = context;
+
+          final deviceName = state.pairedDeviceName.trim().isEmpty
+              ? 'телефоне передачи'
+              : '“${state.pairedDeviceName.trim()}”';
 
           return SafeArea(
             child: Padding(
@@ -552,12 +579,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Введите этот код на рабочем телефоне во вкладке '
-                          '“Передача”. Окно закроется автоматически после '
-                          'подключения.',
+                    Text(
+                      'Введите этот код на $deviceName во вкладке “Передача”. '
+                          'Окно закроется автоматически после подключения.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 14,
                       ),
@@ -583,7 +609,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Ожидаем подключение рабочего телефона...',
+                      'Ожидаем подключение телефона передачи...',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppColors.textSecondary,
@@ -609,7 +635,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       pairingCheckTimer.cancel();
     }
   }
-
 
   void _onModeChanged(AppMode mode) {
     if (mode == AppMode.receiver) {

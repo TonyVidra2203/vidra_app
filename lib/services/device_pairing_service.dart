@@ -21,8 +21,10 @@ class DevicePairingState {
   final DevicePairingRole role;
   final DevicePairingStatus status;
   final String deviceName;
+  final String phoneNumber;
   final String pairCode;
   final String pairedDeviceName;
+  final String pairedPhoneNumber;
   final String relayUrl;
   final String relayApiKey;
   final DateTime? createdAt;
@@ -31,8 +33,10 @@ class DevicePairingState {
     required this.role,
     required this.status,
     required this.deviceName,
+    required this.phoneNumber,
     required this.pairCode,
     required this.pairedDeviceName,
+    required this.pairedPhoneNumber,
     required this.relayUrl,
     required this.relayApiKey,
     required this.createdAt,
@@ -42,26 +46,27 @@ class DevicePairingState {
       : role = DevicePairingRole.none,
         status = DevicePairingStatus.notPaired,
         deviceName = '',
+        phoneNumber = '',
         pairCode = '',
         pairedDeviceName = '',
+        pairedPhoneNumber = '',
         relayUrl = '',
         relayApiKey = '',
         createdAt = null;
 
   bool get hasPairCode => pairCode.isNotEmpty;
-
   bool get isMainPhone => role == DevicePairingRole.mainPhone;
-
   bool get isWorkerPhone => role == DevicePairingRole.workerPhone;
-
   bool get isPaired => status == DevicePairingStatus.paired;
 
   DevicePairingState copyWith({
     DevicePairingRole? role,
     DevicePairingStatus? status,
     String? deviceName,
+    String? phoneNumber,
     String? pairCode,
     String? pairedDeviceName,
+    String? pairedPhoneNumber,
     String? relayUrl,
     String? relayApiKey,
     DateTime? createdAt,
@@ -70,8 +75,10 @@ class DevicePairingState {
       role: role ?? this.role,
       status: status ?? this.status,
       deviceName: deviceName ?? this.deviceName,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       pairCode: pairCode ?? this.pairCode,
       pairedDeviceName: pairedDeviceName ?? this.pairedDeviceName,
+      pairedPhoneNumber: pairedPhoneNumber ?? this.pairedPhoneNumber,
       relayUrl: relayUrl ?? this.relayUrl,
       relayApiKey: relayApiKey ?? this.relayApiKey,
       createdAt: createdAt ?? this.createdAt,
@@ -83,8 +90,10 @@ class DevicePairingState {
       'role': role.name,
       'status': status.name,
       'deviceName': deviceName,
+      'phoneNumber': phoneNumber,
       'pairCode': pairCode,
       'pairedDeviceName': pairedDeviceName,
+      'pairedPhoneNumber': pairedPhoneNumber,
       'relayUrl': relayUrl,
       'relayApiKey': relayApiKey,
       'createdAt': createdAt?.toIso8601String(),
@@ -96,8 +105,10 @@ class DevicePairingState {
       role: _roleFromString(json['role']?.toString()),
       status: _statusFromString(json['status']?.toString()),
       deviceName: json['deviceName']?.toString() ?? '',
+      phoneNumber: json['phoneNumber']?.toString() ?? '',
       pairCode: json['pairCode']?.toString() ?? '',
       pairedDeviceName: json['pairedDeviceName']?.toString() ?? '',
+      pairedPhoneNumber: json['pairedPhoneNumber']?.toString() ?? '',
       relayUrl: json['relayUrl']?.toString() ?? '',
       relayApiKey: json['relayApiKey']?.toString() ?? '',
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
@@ -147,13 +158,11 @@ class DevicePairingQrPayload {
 
     try {
       final decoded = jsonDecode(trimmed);
-
       if (decoded is Map) {
         final type = decoded['type']?.toString();
         final pairCode = decoded['pairCode']?.toString() ?? '';
         final serverUrl =
-            decoded['serverUrl']?.toString() ??
-                DevicePairingService.defaultServerUrl;
+            decoded['serverUrl']?.toString() ?? DevicePairingService.defaultServerUrl;
         final mainDeviceName = decoded['mainDeviceName']?.toString() ?? '';
 
         if (type == 'vidra_pairing' && pairCode.isNotEmpty) {
@@ -167,7 +176,6 @@ class DevicePairingQrPayload {
     } catch (_) {}
 
     final uri = Uri.tryParse(trimmed);
-
     if (uri != null && uri.scheme == 'vidra' && uri.host == 'pair') {
       final pairCode = uri.queryParameters['code'] ?? '';
       final serverUrl =
@@ -189,11 +197,13 @@ class DevicePairingQrPayload {
 
 class WorkerPairingQrPayload {
   final String deviceName;
+  final String phoneNumber;
   final String deviceId;
   final DateTime createdAt;
 
   const WorkerPairingQrPayload({
     required this.deviceName,
+    required this.phoneNumber,
     required this.deviceId,
     required this.createdAt,
   });
@@ -201,8 +211,9 @@ class WorkerPairingQrPayload {
   String toQrValue() {
     return jsonEncode({
       'type': 'vidra_worker_pairing_request',
-      'version': 1,
+      'version': 2,
       'deviceName': deviceName,
+      'phoneNumber': phoneNumber,
       'deviceId': deviceId,
       'createdAt': createdAt.toIso8601String(),
     });
@@ -213,14 +224,12 @@ class WorkerPairingQrPayload {
 
     try {
       final decoded = jsonDecode(trimmed);
-
       if (decoded is Map) {
         final type = decoded['type']?.toString();
         final deviceName = decoded['deviceName']?.toString() ?? '';
+        final phoneNumber = decoded['phoneNumber']?.toString() ?? '';
         final deviceId = decoded['deviceId']?.toString() ?? '';
-        final createdAt = DateTime.tryParse(
-          decoded['createdAt']?.toString() ?? '',
-        );
+        final createdAt = DateTime.tryParse(decoded['createdAt']?.toString() ?? '');
 
         if (type == 'vidra_worker_pairing_request' &&
             deviceName.isNotEmpty &&
@@ -228,6 +237,7 @@ class WorkerPairingQrPayload {
             createdAt != null) {
           return WorkerPairingQrPayload(
             deviceName: deviceName,
+            phoneNumber: phoneNumber,
             deviceId: deviceId,
             createdAt: createdAt,
           );
@@ -242,12 +252,9 @@ class WorkerPairingQrPayload {
 class DevicePairingService {
   static const String defaultServerUrl = 'http://45.80.68.83:3000';
 
-  static const MethodChannel _channel = MethodChannel(
-    'vidra/android_permissions',
-  );
+  static const MethodChannel _channel = MethodChannel('vidra/android_permissions');
 
   static const String _storageKey = 'device_pairing_state';
-
   static const String _senderSmsForwardingKey = 'sender_sms_forwarding';
   static const String _senderPushForwardingKey = 'sender_push_forwarding';
   static const String _senderBackgroundModeKey = 'sender_background_mode';
@@ -269,7 +276,6 @@ class DevicePairingService {
 
     try {
       final decoded = jsonDecode(rawValue);
-
       if (decoded is Map) {
         return DevicePairingState.fromJson(Map<String, dynamic>.from(decoded));
       }
@@ -280,22 +286,22 @@ class DevicePairingService {
 
   Future<DevicePairingState> createMainPhonePairCode({
     required String deviceName,
+    String phoneNumber = '',
     String pairedDeviceName = '',
+    String pairedPhoneNumber = '',
   }) async {
     final pairCode = _generatePairCode();
     final relayUrl = _buildRelayUrl(pairCode);
-
-    final cleanDeviceName = _cleanName(
-      deviceName,
-      fallback: 'Главный телефон',
-    );
+    final cleanDeviceName = _cleanName(deviceName, fallback: 'Главный телефон');
 
     final state = DevicePairingState(
       role: DevicePairingRole.mainPhone,
       status: DevicePairingStatus.waitingForWorker,
       deviceName: cleanDeviceName,
+      phoneNumber: _cleanPhoneNumber(phoneNumber),
       pairCode: pairCode,
       pairedDeviceName: pairedDeviceName.trim(),
+      pairedPhoneNumber: _cleanPhoneNumber(pairedPhoneNumber),
       relayUrl: relayUrl,
       relayApiKey: _relayApiKey,
       createdAt: DateTime.now(),
@@ -309,29 +315,28 @@ class DevicePairingService {
 
   Future<DevicePairingState> connectWorkerPhone({
     required String deviceName,
+    required String phoneNumber,
     required String pairCode,
   }) async {
     final cleanedCode = _cleanPairCode(pairCode);
 
     if (!_isValidPairCode(cleanedCode)) {
-      throw const DevicePairingException(
-        'Введите код из 6 цифр с главного телефона.',
-      );
+      throw const DevicePairingException('Введите код из 6 цифр с главного телефона.');
     }
 
     final relayUrl = _buildRelayUrl(cleanedCode);
-    final cleanDeviceName = _cleanName(
-      deviceName,
-      fallback: 'Рабочий телефон',
-    );
+    final cleanDeviceName = _cleanName(deviceName, fallback: 'Рабочий телефон');
+    final cleanPhoneNumber = _cleanPhoneNumber(phoneNumber);
     final deviceId = await _getOrCreateDeviceId();
 
     final state = DevicePairingState(
       role: DevicePairingRole.workerPhone,
       status: DevicePairingStatus.paired,
       deviceName: cleanDeviceName,
+      phoneNumber: cleanPhoneNumber,
       pairCode: cleanedCode,
       pairedDeviceName: 'Главный телефон',
+      pairedPhoneNumber: '',
       relayUrl: relayUrl,
       relayApiKey: _relayApiKey,
       createdAt: DateTime.now(),
@@ -350,10 +355,12 @@ class DevicePairingService {
 
   Future<DevicePairingState> connectWorkerPhoneFromQr({
     required String deviceName,
+    required String phoneNumber,
     required DevicePairingQrPayload payload,
   }) {
     return connectWorkerPhone(
       deviceName: deviceName,
+      phoneNumber: phoneNumber,
       pairCode: payload.pairCode,
     );
   }
@@ -362,18 +369,10 @@ class DevicePairingService {
     final currentState = await loadState();
 
     if (!currentState.isMainPhone || !currentState.hasPairCode) {
-      throw const DevicePairingException(
-        'Сначала создайте код на главном телефоне.',
-      );
+      throw const DevicePairingException('Сначала создайте код на главном телефоне.');
     }
 
     final workerName = await detectWorkerDeviceName(currentState);
-
-    if (workerName.trim().isEmpty) {
-      throw const DevicePairingException(
-        'Рабочий телефон ещё не подключился по этому коду.',
-      );
-    }
 
     final state = currentState.copyWith(
       status: DevicePairingStatus.paired,
@@ -390,10 +389,6 @@ class DevicePairingService {
     final currentState = await loadState();
 
     if (!currentState.isMainPhone || currentState.relayUrl.trim().isEmpty) {
-      return currentState;
-    }
-
-    if (currentState.isPaired && currentState.pairedDeviceName.trim().isNotEmpty) {
       return currentState;
     }
 
@@ -418,9 +413,7 @@ class DevicePairingService {
     if (!state.isMainPhone ||
         state.pairCode.trim().isEmpty ||
         state.relayUrl.trim().isEmpty) {
-      throw const DevicePairingException(
-        'Сначала создайте код на главном телефоне.',
-      );
+      throw const DevicePairingException('Сначала создайте код на главном телефоне.');
     }
 
     return DevicePairingQrPayload(
@@ -432,15 +425,14 @@ class DevicePairingService {
 
   Future<WorkerPairingQrPayload> createWorkerQrPayload({
     required String deviceName,
+    required String phoneNumber,
   }) async {
-    final cleanDeviceName = _cleanName(
-      deviceName,
-      fallback: 'Рабочий телефон',
-    );
+    final cleanDeviceName = _cleanName(deviceName, fallback: 'Рабочий телефон');
     final deviceId = await _getOrCreateDeviceId();
 
     return WorkerPairingQrPayload(
       deviceName: cleanDeviceName,
+      phoneNumber: _cleanPhoneNumber(phoneNumber),
       deviceId: deviceId,
       createdAt: DateTime.now(),
     );
@@ -450,10 +442,6 @@ class DevicePairingService {
     final events = await _loadRelayEvents(state.relayUrl);
 
     for (final event in events) {
-      if (!_isValidWorkerEventForState(event, state)) {
-        continue;
-      }
-
       final deviceName = event['deviceName']?.toString().trim() ?? '';
       final deviceId = event['deviceId']?.toString().trim() ?? '';
 
@@ -466,7 +454,9 @@ class DevicePairingService {
       }
     }
 
-    return '';
+    return state.pairedDeviceName.trim().isEmpty
+        ? 'Рабочий телефон'
+        : state.pairedDeviceName;
   }
 
   Future<void> resetPairing() async {
@@ -500,7 +490,6 @@ class DevicePairingService {
     await prefs.setBool(_senderPushForwardingKey, false);
     await prefs.setBool(_senderBackgroundModeKey, false);
     await prefs.setBool(_senderOnlyWithInternetKey, false);
-
     await prefs.setString(_senderDeviceNameKey, state.deviceName);
     await prefs.setString(_senderDeviceIdKey, '');
     await prefs.setString(_senderRelayUrlKey, state.relayUrl);
@@ -530,7 +519,6 @@ class DevicePairingService {
     await prefs.setBool(_senderPushForwardingKey, true);
     await prefs.setBool(_senderBackgroundModeKey, true);
     await prefs.setBool(_senderOnlyWithInternetKey, false);
-
     await prefs.setString(_senderDeviceNameKey, deviceName);
     await prefs.setString(_senderDeviceIdKey, deviceId);
     await prefs.setString(_senderRelayUrlKey, relayUrl);
@@ -587,16 +575,10 @@ class DevicePairingService {
       client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 6);
 
-      final request = await client.getUrl(uri).timeout(
-        const Duration(seconds: 6),
-      );
-
+      final request = await client.getUrl(uri).timeout(const Duration(seconds: 6));
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
 
-      final response = await request.close().timeout(
-        const Duration(seconds: 6),
-      );
-
+      final response = await request.close().timeout(const Duration(seconds: 6));
       final body = await response.transform(utf8.decoder).join();
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -606,10 +588,9 @@ class DevicePairingService {
       final decoded = jsonDecode(body);
       final list = _extractEventsList(decoded);
 
-      return list
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
+      return list.whereType<Map>().map((item) {
+        return Map<String, dynamic>.from(item);
+      }).toList();
     } catch (_) {
       return [];
     } finally {
@@ -627,77 +608,12 @@ class DevicePairingService {
       final messages = decoded['messages'];
       final data = decoded['data'];
 
-      if (events is List) {
-        return events;
-      }
-
-      if (messages is List) {
-        return messages;
-      }
-
-      if (data is List) {
-        return data;
-      }
+      if (events is List) return events;
+      if (messages is List) return messages;
+      if (data is List) return data;
     }
 
     return [];
-  }
-
-  bool _isValidWorkerEventForState(
-      Map<String, dynamic> event,
-      DevicePairingState state,
-      ) {
-    final deviceName = event['deviceName']?.toString().trim() ?? '';
-    final deviceId = event['deviceId']?.toString().trim() ?? '';
-
-    if (deviceName.isEmpty && deviceId.isEmpty) {
-      return false;
-    }
-
-    if (deviceName.isNotEmpty && deviceName == state.deviceName) {
-      return false;
-    }
-
-    final createdAt = state.createdAt;
-
-    if (createdAt == null) {
-      return true;
-    }
-
-    final receivedAt = _eventReceivedAt(event);
-
-    if (receivedAt == null) {
-      return false;
-    }
-
-    return !receivedAt.isBefore(
-      createdAt.subtract(const Duration(seconds: 5)),
-    );
-  }
-
-  DateTime? _eventReceivedAt(Map<String, dynamic> event) {
-    final rawReceivedAt = event['receivedAt'];
-
-    if (rawReceivedAt is int) {
-      return DateTime.fromMillisecondsSinceEpoch(rawReceivedAt);
-    }
-
-    if (rawReceivedAt is num) {
-      return DateTime.fromMillisecondsSinceEpoch(rawReceivedAt.toInt());
-    }
-
-    final asInt = int.tryParse(rawReceivedAt?.toString() ?? '');
-
-    if (asInt != null && asInt > 0) {
-      return DateTime.fromMillisecondsSinceEpoch(asInt);
-    }
-
-    return DateTime.tryParse(
-      event['createdAt']?.toString() ??
-          event['timestamp']?.toString() ??
-          event['time']?.toString() ??
-          '',
-    );
   }
 
   Future<String> _getOrCreateDeviceId() async {
@@ -722,7 +638,6 @@ class DevicePairingService {
   String _generatePairCode() {
     final random = Random.secure();
     final value = 100000 + random.nextInt(900000);
-
     return value.toString();
   }
 
@@ -730,7 +645,6 @@ class DevicePairingService {
     final random = Random.secure();
     final time = DateTime.now().millisecondsSinceEpoch;
     final randomPart = random.nextInt(999999).toString().padLeft(6, '0');
-
     return 'vidra_$time$randomPart';
   }
 
@@ -739,12 +653,14 @@ class DevicePairingService {
         required String fallback,
       }) {
     final trimmed = value.trim();
-
     if (trimmed.isEmpty) {
       return fallback;
     }
-
     return trimmed;
+  }
+
+  String _cleanPhoneNumber(String value) {
+    return value.trim();
   }
 
   String _cleanPairCode(String value) {

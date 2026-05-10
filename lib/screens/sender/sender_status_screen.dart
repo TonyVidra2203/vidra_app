@@ -24,9 +24,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   final SenderSettingsService _settingsService = const SenderSettingsService();
   final DevicePairingService _pairingService = DevicePairingService();
 
-  final TextEditingController _deviceNameController = TextEditingController(
-    text: 'Рабочий телефон',
-  );
   final TextEditingController _pairCodeController = TextEditingController();
 
   SenderSettingsState? settings;
@@ -36,6 +33,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   bool pushNotificationsEnabled = true;
   bool isLoading = true;
   bool isSaving = false;
+  bool showManualCodeInput = false;
+
   String message = '';
 
   bool get isWorkerPhonePaired {
@@ -51,7 +50,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
 
   @override
   void dispose() {
-    _deviceNameController.dispose();
     _pairCodeController.dispose();
     super.dispose();
   }
@@ -60,10 +58,17 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     final loadedSettings = await _settingsService.load();
     final loadedPairingState = await _pairingService.loadState();
 
+    final shouldShowPairingQr =
+        !loadedPairingState.isPaired || !loadedPairingState.isWorkerPhone;
+
     WorkerPairingQrPayload? qrPayload;
-    if (!loadedPairingState.isPaired) {
+
+    if (shouldShowPairingQr) {
       qrPayload = await _pairingService.createWorkerQrPayload(
-        deviceName: loadedSettings.deviceName,
+        deviceName: loadedSettings.deviceName.trim().isEmpty
+            ? 'Телефон передачи'
+            : loadedSettings.deviceName.trim(),
+        phoneNumber: '',
       );
     }
 
@@ -76,9 +81,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       pairingState = loadedPairingState;
       workerQrPayload = qrPayload;
       pushNotificationsEnabled = loadedSettings.pushForwarding;
-      _deviceNameController.text = loadedSettings.deviceName.trim().isEmpty
-          ? 'Рабочий телефон'
-          : loadedSettings.deviceName.trim();
       isLoading = false;
     });
   }
@@ -89,6 +91,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     }
 
     AppModeService.setMode(AppMode.receiver);
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -137,21 +140,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     );
   }
 
-  Future<void> _refreshWorkerQr() async {
-    final payload = await _pairingService.createWorkerQrPayload(
-      deviceName: _deviceNameController.text,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      workerQrPayload = payload;
-      message = 'QR-код обновлён.';
-    });
-  }
-
   Future<void> _connectByManualCode() async {
     setState(() {
       isSaving = true;
@@ -159,12 +147,17 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     });
 
     try {
+      final loadedSettings = settings ?? await _settingsService.load();
+
       final newState = await _pairingService.connectWorkerPhone(
-        deviceName: _deviceNameController.text,
+        deviceName: loadedSettings.deviceName.trim().isEmpty
+            ? 'Телефон передачи'
+            : loadedSettings.deviceName.trim(),
+        phoneNumber: '',
         pairCode: _pairCodeController.text,
       );
 
-      final loadedSettings = await _settingsService.load();
+      final updatedSettings = await _settingsService.load();
 
       if (!mounted) {
         return;
@@ -172,15 +165,15 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
 
       setState(() {
         pairingState = newState;
-        settings = loadedSettings;
-        pushNotificationsEnabled = loadedSettings.pushForwarding;
+        settings = updatedSettings;
+        pushNotificationsEnabled = updatedSettings.pushForwarding;
         isSaving = false;
-        message = 'Рабочий телефон привязан. Теперь доступно меню передачи.';
+        message = 'Телефон передачи привязан. Теперь доступно меню передачи.';
       });
     } on DevicePairingException catch (error) {
       _setError(error.message);
     } catch (_) {
-      _setError('Не удалось привязать рабочий телефон.');
+      _setError('Не удалось привязать телефон передачи.');
     }
   }
 
@@ -194,7 +187,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
 
     final loadedSettings = await _settingsService.load();
     final payload = await _pairingService.createWorkerQrPayload(
-      deviceName: loadedSettings.deviceName,
+      deviceName: loadedSettings.deviceName.trim().isEmpty
+          ? 'Телефон передачи'
+          : loadedSettings.deviceName.trim(),
+      phoneNumber: '',
     );
 
     if (!mounted) {
@@ -206,6 +202,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       pairingState = const DevicePairingState.empty();
       workerQrPayload = payload;
       _pairCodeController.clear();
+      showManualCodeInput = false;
       isSaving = false;
       message = 'Связка сброшена.';
     });
@@ -268,18 +265,16 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _WorkerPairingIntroCard(
-          deviceNameController: _deviceNameController,
-        ),
-        const SizedBox(height: 14),
-        _WorkerQrCard(
+        _WorkerPairingCard(
           payload: workerQrPayload,
-          onRefresh: isSaving ? null : _refreshWorkerQr,
-        ),
-        const SizedBox(height: 14),
-        _ManualPairingCard(
+          isManualCodeVisible: showManualCodeInput,
           pairCodeController: _pairCodeController,
           isSaving: isSaving,
+          onToggleManualCode: () {
+            setState(() {
+              showManualCodeInput = !showManualCodeInput;
+            });
+          },
           onConnect: _connectByManualCode,
         ),
         if (message.isNotEmpty) ...[
@@ -315,7 +310,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
         _MenuButton(
           icon: Icons.link_off,
           title: 'Сбросить связку',
-          subtitle: 'Вернуть рабочий телефон к экрану привязки',
+          subtitle: 'Вернуть телефон передачи к экрану привязки',
           onTap: isSaving ? () {} : _resetPairing,
         ),
         if (message.isNotEmpty) ...[
@@ -327,71 +322,21 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   }
 }
 
-class _WorkerPairingIntroCard extends StatelessWidget {
-  final TextEditingController deviceNameController;
-
-  const _WorkerPairingIntroCard({
-    required this.deviceNameController,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.send_to_mobile,
-                color: AppColors.primary,
-                size: 30,
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Связка рабочего телефона',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 19,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Покажите QR-код главному телефону. На главном телефоне нажмите “+ добавить” и отсканируйте этот код.',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: deviceNameController,
-            textInputAction: TextInputAction.done,
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration: const InputDecoration(
-              labelText: 'Название этого рабочего телефона',
-              hintText: 'Например: Рабочий телефон 1',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WorkerQrCard extends StatelessWidget {
+class _WorkerPairingCard extends StatelessWidget {
   final WorkerPairingQrPayload? payload;
-  final VoidCallback? onRefresh;
+  final bool isManualCodeVisible;
+  final TextEditingController pairCodeController;
+  final bool isSaving;
+  final VoidCallback onToggleManualCode;
+  final VoidCallback onConnect;
 
-  const _WorkerQrCard({
+  const _WorkerPairingCard({
     required this.payload,
-    required this.onRefresh,
+    required this.isManualCodeVisible,
+    required this.pairCodeController,
+    required this.isSaving,
+    required this.onToggleManualCode,
+    required this.onConnect,
   });
 
   @override
@@ -400,68 +345,150 @@ class _WorkerQrCard extends StatelessWidget {
 
     return AppCard(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SizedBox(height: 4),
+          const Icon(
+            Icons.qr_code_2_rounded,
+            color: AppColors.primary,
+            size: 48,
+          ),
+          const SizedBox(height: 12),
           const Text(
-            'QR-код для главного телефона',
+            'Передача',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.textPrimary,
-              fontSize: 17,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: currentPayload == null
-                ? const SizedBox(
-              width: 210,
-              height: 210,
-              child: Center(
-                child: CircularProgressIndicator(),
-              ),
-            )
-                : QrImageView(
-              data: currentPayload.toQrValue(),
-              version: QrVersions.auto,
-              size: 210,
-            ),
-          ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           const Text(
-            'После сканирования главный телефон создаст код связки. Если камера недоступна — используйте ручной ввод ниже.',
+            'Покажите этот QR-код главному телефону для быстрой привязки.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.textSecondary,
-              fontSize: 13,
+              fontSize: 14,
             ),
           ),
-          const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: onRefresh,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Обновить QR-код'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.primary),
+          const SizedBox(height: 22),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.20),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: currentPayload == null
+                  ? const SizedBox(
+                width: 230,
+                height: 230,
+                child: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              )
+                  : QrImageView(
+                data: currentPayload.toQrValue(),
+                version: QrVersions.auto,
+                size: 230,
+              ),
             ),
           ),
+          const SizedBox(height: 24),
+          _ManualCodeButton(
+            isExpanded: isManualCodeVisible,
+            onTap: isSaving ? null : onToggleManualCode,
+          ),
+          if (isManualCodeVisible) ...[
+            const SizedBox(height: 16),
+            _ManualCodeForm(
+              pairCodeController: pairCodeController,
+              isSaving: isSaving,
+              onConnect: onConnect,
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _ManualPairingCard extends StatelessWidget {
+class _ManualCodeButton extends StatelessWidget {
+  final bool isExpanded;
+  final VoidCallback? onTap;
+
+  const _ManualCodeButton({
+    required this.isExpanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.primary.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.keyboard_rounded,
+                  color: AppColors.primary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isExpanded ? 'Скрыть ручной ввод' : 'Ввести код вручную',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Icon(
+                isExpanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                color: AppColors.primary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualCodeForm extends StatelessWidget {
   final TextEditingController pairCodeController;
   final bool isSaving;
   final VoidCallback onConnect;
 
-  const _ManualPairingCard({
+  const _ManualCodeForm({
     required this.pairCodeController,
     required this.isSaving,
     required this.onConnect,
@@ -469,49 +496,45 @@ class _ManualPairingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Запасной вариант',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Введите код, который показан на главном телефоне.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Введите код, который сгенерировал главный телефон. Адрес сервера подставляется автоматически.',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: pairCodeController,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 6,
           ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: pairCodeController,
-            keyboardType: TextInputType.number,
-            maxLength: 6,
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration: const InputDecoration(
-              labelText: 'Код с главного телефона',
-              hintText: 'Введите 6 цифр',
-              border: OutlineInputBorder(),
-              counterText: '',
-            ),
+          decoration: const InputDecoration(
+            labelText: 'Код связки',
+            hintText: '000000',
+            border: OutlineInputBorder(),
+            counterText: '',
           ),
-          const SizedBox(height: 14),
-          ElevatedButton.icon(
-            onPressed: isSaving ? null : onConnect,
-            icon: const Icon(Icons.link),
-            label: Text(
-              isSaving ? 'Привязываю...' : 'Привязать рабочий телефон',
-            ),
+        ),
+        const SizedBox(height: 12),
+        ElevatedButton.icon(
+          onPressed: isSaving ? null : onConnect,
+          icon: const Icon(Icons.link_rounded),
+          label: Text(
+            isSaving ? 'Подключаю...' : 'Подключить телефон',
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
