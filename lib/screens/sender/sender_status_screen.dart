@@ -28,7 +28,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     text: 'Рабочий телефон',
   );
   final TextEditingController _pairCodeController = TextEditingController();
-  final TextEditingController _serverUrlController = TextEditingController();
 
   SenderSettingsState? settings;
   DevicePairingState pairingState = const DevicePairingState.empty();
@@ -54,7 +53,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   void dispose() {
     _deviceNameController.dispose();
     _pairCodeController.dispose();
-    _serverUrlController.dispose();
     super.dispose();
   }
 
@@ -164,7 +162,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       final newState = await _pairingService.connectWorkerPhone(
         deviceName: _deviceNameController.text,
         pairCode: _pairCodeController.text,
-        serverUrl: _serverUrlController.text,
       );
 
       final loadedSettings = await _settingsService.load();
@@ -194,6 +191,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     });
 
     await _pairingService.resetPairing();
+
     final loadedSettings = await _settingsService.load();
     final payload = await _pairingService.createWorkerQrPayload(
       deviceName: loadedSettings.deviceName,
@@ -281,7 +279,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
         const SizedBox(height: 14),
         _ManualPairingCard(
           pairCodeController: _pairCodeController,
-          serverUrlController: _serverUrlController,
           isSaving: isSaving,
           onConnect: _connectByManualCode,
         ),
@@ -461,13 +458,11 @@ class _WorkerQrCard extends StatelessWidget {
 
 class _ManualPairingCard extends StatelessWidget {
   final TextEditingController pairCodeController;
-  final TextEditingController serverUrlController;
   final bool isSaving;
   final VoidCallback onConnect;
 
   const _ManualPairingCard({
     required this.pairCodeController,
-    required this.serverUrlController,
     required this.isSaving,
     required this.onConnect,
   });
@@ -488,7 +483,7 @@ class _ManualPairingCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Введите код и адрес сервера, которые сгенерировал главный телефон.',
+            'Введите код, который сгенерировал главный телефон. Адрес сервера подставляется автоматически.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
@@ -505,18 +500,6 @@ class _ManualPairingCard extends StatelessWidget {
               hintText: 'Введите 6 цифр',
               border: OutlineInputBorder(),
               counterText: '',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: serverUrlController,
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.done,
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration: const InputDecoration(
-              labelText: 'Адрес сервера',
-              hintText: 'http://45.80.68.83:3000',
-              border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 14),

@@ -49,11 +49,8 @@ class DevicePairingState {
         createdAt = null;
 
   bool get hasPairCode => pairCode.isNotEmpty;
-
   bool get isMainPhone => role == DevicePairingRole.mainPhone;
-
   bool get isWorkerPhone => role == DevicePairingRole.workerPhone;
-
   bool get isPaired => status == DevicePairingStatus.paired;
 
   DevicePairingState copyWith({
@@ -130,9 +127,7 @@ class DevicePairingQrPayload {
     required this.mainDeviceName,
   });
 
-  bool get isValid {
-    return pairCode.trim().isNotEmpty && serverUrl.trim().isNotEmpty;
-  }
+  bool get isValid => pairCode.trim().isNotEmpty;
 
   String toQrValue() {
     return jsonEncode({
@@ -152,12 +147,11 @@ class DevicePairingQrPayload {
       if (decoded is Map) {
         final type = decoded['type']?.toString();
         final pairCode = decoded['pairCode']?.toString() ?? '';
-        final serverUrl = decoded['serverUrl']?.toString() ?? '';
+        final serverUrl = decoded['serverUrl']?.toString() ??
+            DevicePairingService.defaultServerUrl;
         final mainDeviceName = decoded['mainDeviceName']?.toString() ?? '';
 
-        if (type == 'vidra_pairing' &&
-            pairCode.isNotEmpty &&
-            serverUrl.isNotEmpty) {
+        if (type == 'vidra_pairing' && pairCode.isNotEmpty) {
           return DevicePairingQrPayload(
             pairCode: pairCode,
             serverUrl: serverUrl,
@@ -170,10 +164,11 @@ class DevicePairingQrPayload {
     final uri = Uri.tryParse(trimmed);
     if (uri != null && uri.scheme == 'vidra' && uri.host == 'pair') {
       final pairCode = uri.queryParameters['code'] ?? '';
-      final serverUrl = uri.queryParameters['server'] ?? '';
+      final serverUrl =
+          uri.queryParameters['server'] ?? DevicePairingService.defaultServerUrl;
       final mainDeviceName = uri.queryParameters['name'] ?? '';
 
-      if (pairCode.isNotEmpty && serverUrl.isNotEmpty) {
+      if (pairCode.isNotEmpty) {
         return DevicePairingQrPayload(
           pairCode: pairCode,
           serverUrl: serverUrl,
@@ -238,6 +233,8 @@ class WorkerPairingQrPayload {
 }
 
 class DevicePairingService {
+  static const String defaultServerUrl = 'http://45.80.68.83:3000';
+
   static const MethodChannel _channel = MethodChannel(
     'vidra/android_permissions',
   );
@@ -247,8 +244,7 @@ class DevicePairingService {
   static const String _senderSmsForwardingKey = 'sender_sms_forwarding';
   static const String _senderPushForwardingKey = 'sender_push_forwarding';
   static const String _senderBackgroundModeKey = 'sender_background_mode';
-  static const String _senderOnlyWithInternetKey =
-      'sender_only_with_internet';
+  static const String _senderOnlyWithInternetKey = 'sender_only_with_internet';
   static const String _senderDeviceNameKey = 'sender_device_name';
   static const String _senderDeviceIdKey = 'sender_device_id';
   static const String _senderRelayUrlKey = 'sender_relay_url';
@@ -276,17 +272,10 @@ class DevicePairingService {
 
   Future<DevicePairingState> createMainPhonePairCode({
     required String deviceName,
-    required String serverUrl,
     String pairedDeviceName = '',
   }) async {
-    final cleanedServerUrl = _cleanServerUrl(serverUrl);
-
-    if (cleanedServerUrl.isEmpty) {
-      throw const DevicePairingException('Введите адрес сервера.');
-    }
-
     final pairCode = _generatePairCode();
-    final relayUrl = _buildRelayUrl(cleanedServerUrl, pairCode);
+    final relayUrl = _buildRelayUrl(pairCode);
     final cleanDeviceName = _cleanName(
       deviceName,
       fallback: 'Главный телефон',
@@ -312,10 +301,8 @@ class DevicePairingService {
   Future<DevicePairingState> connectWorkerPhone({
     required String deviceName,
     required String pairCode,
-    required String serverUrl,
   }) async {
     final cleanedCode = _cleanPairCode(pairCode);
-    final cleanedServerUrl = _cleanServerUrl(serverUrl);
 
     if (!_isValidPairCode(cleanedCode)) {
       throw const DevicePairingException(
@@ -323,13 +310,7 @@ class DevicePairingService {
       );
     }
 
-    if (cleanedServerUrl.isEmpty) {
-      throw const DevicePairingException(
-        'Введите адрес сервера. Например: http://45.80.68.83:3000',
-      );
-    }
-
-    final relayUrl = _buildRelayUrl(cleanedServerUrl, cleanedCode);
+    final relayUrl = _buildRelayUrl(cleanedCode);
     final cleanDeviceName = _cleanName(
       deviceName,
       fallback: 'Рабочий телефон',
@@ -365,7 +346,6 @@ class DevicePairingService {
     return connectWorkerPhone(
       deviceName: deviceName,
       pairCode: payload.pairCode,
-      serverUrl: payload.serverUrl,
     );
   }
 
@@ -425,7 +405,7 @@ class DevicePairingService {
 
     return DevicePairingQrPayload(
       pairCode: state.pairCode,
-      serverUrl: _extractServerUrl(state.relayUrl),
+      serverUrl: defaultServerUrl,
       mainDeviceName: state.deviceName,
     );
   }
@@ -462,7 +442,9 @@ class DevicePairingService {
       }
     }
 
-    return 'Рабочий телефон';
+    return state.pairedDeviceName.trim().isEmpty
+        ? 'Рабочий телефон'
+        : state.pairedDeviceName;
   }
 
   Future<void> resetPairing() async {
@@ -648,25 +630,9 @@ class DevicePairingService {
     return deviceId;
   }
 
-  String _buildRelayUrl(String serverUrl, String pairCode) {
-    final base = serverUrl.trim().replaceAll(RegExp(r'/+$'), '');
+  String _buildRelayUrl(String pairCode) {
+    final base = defaultServerUrl.replaceAll(RegExp(r'/+$'), '');
     return '$base/events/$pairCode';
-  }
-
-  String _extractServerUrl(String relayUrl) {
-    final cleaned = relayUrl.trim();
-
-    if (cleaned.isEmpty) {
-      return '';
-    }
-
-    const marker = '/events/';
-
-    if (!cleaned.contains(marker)) {
-      return cleaned;
-    }
-
-    return cleaned.split(marker).first;
   }
 
   String _generatePairCode() {
@@ -693,23 +659,6 @@ class DevicePairingService {
     }
 
     return trimmed;
-  }
-
-  String _cleanServerUrl(String value) {
-    final trimmed = value.trim();
-
-    if (trimmed.isEmpty) {
-      return '';
-    }
-
-    final withoutTrailingSlash = trimmed.replaceAll(RegExp(r'/+$'), '');
-
-    if (withoutTrailingSlash.startsWith('http://') ||
-        withoutTrailingSlash.startsWith('https://')) {
-      return withoutTrailingSlash;
-    }
-
-    return 'http://$withoutTrailingSlash';
   }
 
   String _cleanPairCode(String value) {
