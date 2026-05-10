@@ -9,6 +9,7 @@ import '../../models/device_model.dart';
 import '../../models/event_model.dart';
 import '../../navigation/app_routes.dart';
 import '../../services/app_mode_service.dart';
+import '../../services/device_pairing_service.dart';
 import '../../services/native_main_phone_service.dart';
 import '../../widgets/common/app_bottom_nav_bar.dart';
 import '../../widgets/common/app_card.dart';
@@ -28,9 +29,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   static const String _pushNotificationsKey =
       'dashboard_push_notifications_enabled';
+
   static const String _deletedDevicesKey = 'dashboard_deleted_devices';
 
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
+  final DevicePairingService pairingService = DevicePairingService();
 
   StreamSubscription<dynamic>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
@@ -40,6 +43,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<EventModel> events = [];
 
   Set<String> deletedDeviceIds = {};
+  DevicePairingState pairingState = const DevicePairingState.empty();
 
   bool hasLoadedOnce = false;
   bool isLoading = false;
@@ -120,18 +124,24 @@ class _DashboardScreenState extends State<DashboardScreen>
     isLoading = true;
 
     try {
+      final loadedPairingState = await pairingService.refreshMainPhonePairing();
       final messages = await nativeService.getMessages();
 
       if (!mounted) {
         return;
       }
 
-      if (messages.isEmpty && hasLoadedOnce) {
+      if (messages.isEmpty && hasLoadedOnce && loadedPairingState.isPaired) {
+        setState(() {
+          pairingState = loadedPairingState;
+          _rebuildDashboardState();
+        });
         return;
       }
 
       setState(() {
         hasLoadedOnce = true;
+        pairingState = loadedPairingState;
         latestMessages = messages;
         _rebuildDashboardState();
       });
@@ -162,7 +172,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     }
 
-    return latestByDevice.values.map((message) {
+    final result = latestByDevice.values.map((message) {
       final key = _deviceKey(message);
 
       return DeviceModel(
@@ -175,6 +185,39 @@ class _DashboardScreenState extends State<DashboardScreen>
         phoneNumber: _phoneNumber(message),
       );
     }).toList();
+
+    final pairedDevice = _buildPairedDevicePlaceholder();
+
+    if (pairedDevice != null &&
+        !deletedDeviceIds.contains(pairedDevice.id) &&
+        !result.any((device) => device.id == pairedDevice.id)) {
+      result.insert(0, pairedDevice);
+    }
+
+    return result;
+  }
+
+  DeviceModel? _buildPairedDevicePlaceholder() {
+    if (!pairingState.isMainPhone || !pairingState.isPaired) {
+      return null;
+    }
+
+    final pairedName = pairingState.pairedDeviceName.trim().isEmpty
+        ? 'Рабочий телефон'
+        : pairingState.pairedDeviceName.trim();
+
+    final pairCode = pairingState.pairCode.trim();
+    final id = pairCode.isEmpty ? pairedName : 'paired_$pairCode';
+
+    return DeviceModel(
+      id: id,
+      name: pairedName,
+      system: 'Связан с главным телефоном',
+      isOnline: true,
+      lastSeen: 'Только что привязан',
+      battery: '-',
+      phoneNumber: 'Не указан',
+    );
   }
 
   String _deviceKey(NativeForwardedMessage message) {
@@ -235,7 +278,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       return '';
     }
 
-    return text.split(' ').where((part) => part.trim().isNotEmpty).join(' ');
+    return text
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .join(' ');
   }
 
   String _phoneNumber(NativeForwardedMessage message) {
@@ -301,7 +347,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _openDevicePairing() {
-    Navigator.of(context).pushNamed(AppRoutes.devicePairing);
+    Navigator.of(context).pushNamed(AppRoutes.devicePairing).then((_) {
+      if (mounted) {
+        _loadDashboardData();
+      }
+    });
   }
 
   void _onModeChanged(AppMode mode) {
@@ -362,11 +412,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         return AlertDialog(
           backgroundColor: AppColors.card,
           title: const Text(
-            'Удалить устройство?',
+            'Отвязать устройство?',
             style: TextStyle(color: AppColors.textPrimary),
           ),
           content: Text(
-            'Телефон "${device.name}" будет отвязан от главного телефона.',
+            'Телефон "${device.name}" будет отвязан от главного телефона. '
+                'Связь будет сброшена, а новые SMS и PUSH с этого подключения '
+                'больше не будут приниматься.',
             style: const TextStyle(color: AppColors.textSecondary),
           ),
           actions: [
@@ -377,7 +429,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
               child: const Text(
-                'Удалить',
+                'Отвязать',
                 style: TextStyle(color: AppColors.danger),
               ),
             ),
@@ -391,18 +443,37 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     final prefs = await SharedPreferences.getInstance();
+
     deletedDeviceIds.add(device.id);
+
+    if (pairingState.isMainPhone || pairingState.isPaired) {
+      final pairCode = pairingState.pairCode.trim();
+
+      if (pairCode.isNotEmpty) {
+        deletedDeviceIds.add('paired_$pairCode');
+      }
+
+      await pairingService.resetPairing();
+      pairingState = const DevicePairingState.empty();
+    }
+
     await prefs.setStringList(_deletedDevicesKey, deletedDeviceIds.toList());
 
     if (!mounted) {
       return;
     }
 
-    setState(_rebuildDashboardState);
+    setState(() {
+      latestMessages = [];
+      devices = [];
+      events = [];
+      hasLoadedOnce = false;
+      _rebuildDashboardState();
+    });
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Телефон отвязан'),
+        content: Text('Устройство отвязано'),
       ),
     );
   }
@@ -554,7 +625,7 @@ class _EmptyDevices extends StatelessWidget {
             ),
             SizedBox(height: 6),
             Text(
-              'Телефоны передачи появятся здесь после первого SMS или PUSH',
+              'Телефон появится здесь сразу после привязки',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary,

@@ -14,6 +14,6 @@ class DeviceModel {
     required this.isOnline,
     required this.lastSeen,
     required this.battery,
-    required this.phoneNumber,
+    this.phoneNumber = 'Не указан',
   });
 }

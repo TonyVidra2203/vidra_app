@@ -139,7 +139,7 @@ class _DeleteDeviceButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.danger.withOpacity(0.16),
+      color: AppColors.danger.withOpacity(0.14),
       shape: const CircleBorder(),
       child: InkWell(
         onTap: onPressed,
@@ -148,9 +148,9 @@ class _DeleteDeviceButton extends StatelessWidget {
           width: 34,
           height: 34,
           child: Icon(
-            Icons.close,
+            Icons.link_off_rounded,
             color: AppColors.danger,
-            size: 20,
+            size: 19,
           ),
         ),
       ),
