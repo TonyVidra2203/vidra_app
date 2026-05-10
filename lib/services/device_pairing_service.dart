@@ -49,8 +49,11 @@ class DevicePairingState {
         createdAt = null;
 
   bool get hasPairCode => pairCode.isNotEmpty;
+
   bool get isMainPhone => role == DevicePairingRole.mainPhone;
+
   bool get isWorkerPhone => role == DevicePairingRole.workerPhone;
+
   bool get isPaired => status == DevicePairingStatus.paired;
 
   DevicePairingState copyWith({
@@ -75,7 +78,7 @@ class DevicePairingState {
     );
   }
 
-  Map<String, dynamic> toJson() {
+  Map<String, Object?> toJson() {
     return {
       'role': role.name,
       'status': status.name,
@@ -144,11 +147,13 @@ class DevicePairingQrPayload {
 
     try {
       final decoded = jsonDecode(trimmed);
+
       if (decoded is Map) {
         final type = decoded['type']?.toString();
         final pairCode = decoded['pairCode']?.toString() ?? '';
-        final serverUrl = decoded['serverUrl']?.toString() ??
-            DevicePairingService.defaultServerUrl;
+        final serverUrl =
+            decoded['serverUrl']?.toString() ??
+                DevicePairingService.defaultServerUrl;
         final mainDeviceName = decoded['mainDeviceName']?.toString() ?? '';
 
         if (type == 'vidra_pairing' && pairCode.isNotEmpty) {
@@ -162,6 +167,7 @@ class DevicePairingQrPayload {
     } catch (_) {}
 
     final uri = Uri.tryParse(trimmed);
+
     if (uri != null && uri.scheme == 'vidra' && uri.host == 'pair') {
       final pairCode = uri.queryParameters['code'] ?? '';
       final serverUrl =
@@ -207,6 +213,7 @@ class WorkerPairingQrPayload {
 
     try {
       final decoded = jsonDecode(trimmed);
+
       if (decoded is Map) {
         final type = decoded['type']?.toString();
         final deviceName = decoded['deviceName']?.toString() ?? '';
@@ -262,6 +269,7 @@ class DevicePairingService {
 
     try {
       final decoded = jsonDecode(rawValue);
+
       if (decoded is Map) {
         return DevicePairingState.fromJson(Map<String, dynamic>.from(decoded));
       }
@@ -276,6 +284,7 @@ class DevicePairingService {
   }) async {
     final pairCode = _generatePairCode();
     final relayUrl = _buildRelayUrl(pairCode);
+
     final cleanDeviceName = _cleanName(
       deviceName,
       fallback: 'Главный телефон',
@@ -359,6 +368,13 @@ class DevicePairingService {
     }
 
     final workerName = await detectWorkerDeviceName(currentState);
+
+    if (workerName.trim().isEmpty) {
+      throw const DevicePairingException(
+        'Рабочий телефон ещё не подключился по этому коду.',
+      );
+    }
+
     final state = currentState.copyWith(
       status: DevicePairingStatus.paired,
       pairedDeviceName: workerName,
@@ -374,6 +390,10 @@ class DevicePairingService {
     final currentState = await loadState();
 
     if (!currentState.isMainPhone || currentState.relayUrl.trim().isEmpty) {
+      return currentState;
+    }
+
+    if (currentState.isPaired && currentState.pairedDeviceName.trim().isNotEmpty) {
       return currentState;
     }
 
@@ -430,6 +450,10 @@ class DevicePairingService {
     final events = await _loadRelayEvents(state.relayUrl);
 
     for (final event in events) {
+      if (!_isValidWorkerEventForState(event, state)) {
+        continue;
+      }
+
       final deviceName = event['deviceName']?.toString().trim() ?? '';
       final deviceId = event['deviceId']?.toString().trim() ?? '';
 
@@ -442,9 +466,7 @@ class DevicePairingService {
       }
     }
 
-    return state.pairedDeviceName.trim().isEmpty
-        ? 'Рабочий телефон'
-        : state.pairedDeviceName;
+    return '';
   }
 
   Future<void> resetPairing() async {
@@ -478,6 +500,7 @@ class DevicePairingService {
     await prefs.setBool(_senderPushForwardingKey, false);
     await prefs.setBool(_senderBackgroundModeKey, false);
     await prefs.setBool(_senderOnlyWithInternetKey, false);
+
     await prefs.setString(_senderDeviceNameKey, state.deviceName);
     await prefs.setString(_senderDeviceIdKey, '');
     await prefs.setString(_senderRelayUrlKey, state.relayUrl);
@@ -507,6 +530,7 @@ class DevicePairingService {
     await prefs.setBool(_senderPushForwardingKey, true);
     await prefs.setBool(_senderBackgroundModeKey, true);
     await prefs.setBool(_senderOnlyWithInternetKey, false);
+
     await prefs.setString(_senderDeviceNameKey, deviceName);
     await prefs.setString(_senderDeviceIdKey, deviceId);
     await prefs.setString(_senderRelayUrlKey, relayUrl);
@@ -559,17 +583,20 @@ class DevicePairingService {
 
     try {
       final uri = Uri.parse(cleanedRelayUrl);
+
       client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 6);
 
       final request = await client.getUrl(uri).timeout(
         const Duration(seconds: 6),
       );
+
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
 
       final response = await request.close().timeout(
         const Duration(seconds: 6),
       );
+
       final body = await response.transform(utf8.decoder).join();
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -616,6 +643,63 @@ class DevicePairingService {
     return [];
   }
 
+  bool _isValidWorkerEventForState(
+      Map<String, dynamic> event,
+      DevicePairingState state,
+      ) {
+    final deviceName = event['deviceName']?.toString().trim() ?? '';
+    final deviceId = event['deviceId']?.toString().trim() ?? '';
+
+    if (deviceName.isEmpty && deviceId.isEmpty) {
+      return false;
+    }
+
+    if (deviceName.isNotEmpty && deviceName == state.deviceName) {
+      return false;
+    }
+
+    final createdAt = state.createdAt;
+
+    if (createdAt == null) {
+      return true;
+    }
+
+    final receivedAt = _eventReceivedAt(event);
+
+    if (receivedAt == null) {
+      return false;
+    }
+
+    return !receivedAt.isBefore(
+      createdAt.subtract(const Duration(seconds: 5)),
+    );
+  }
+
+  DateTime? _eventReceivedAt(Map<String, dynamic> event) {
+    final rawReceivedAt = event['receivedAt'];
+
+    if (rawReceivedAt is int) {
+      return DateTime.fromMillisecondsSinceEpoch(rawReceivedAt);
+    }
+
+    if (rawReceivedAt is num) {
+      return DateTime.fromMillisecondsSinceEpoch(rawReceivedAt.toInt());
+    }
+
+    final asInt = int.tryParse(rawReceivedAt?.toString() ?? '');
+
+    if (asInt != null && asInt > 0) {
+      return DateTime.fromMillisecondsSinceEpoch(asInt);
+    }
+
+    return DateTime.tryParse(
+      event['createdAt']?.toString() ??
+          event['timestamp']?.toString() ??
+          event['time']?.toString() ??
+          '',
+    );
+  }
+
   Future<String> _getOrCreateDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
     final savedDeviceId = prefs.getString(_senderDeviceIdKey);
@@ -638,6 +722,7 @@ class DevicePairingService {
   String _generatePairCode() {
     final random = Random.secure();
     final value = 100000 + random.nextInt(900000);
+
     return value.toString();
   }
 
@@ -645,6 +730,7 @@ class DevicePairingService {
     final random = Random.secure();
     final time = DateTime.now().millisecondsSinceEpoch;
     final randomPart = random.nextInt(999999).toString().padLeft(6, '0');
+
     return 'vidra_$time$randomPart';
   }
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/app_colors.dart';
@@ -35,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
   final DevicePairingService pairingService = DevicePairingService();
 
-  StreamSubscription<dynamic>? messageUpdatesSubscription;
+  StreamSubscription<void>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
 
   List<NativeForwardedMessage> latestMessages = [];
@@ -206,6 +205,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final pairedName = pairingState.pairedDeviceName.trim().isEmpty
         ? 'Рабочий телефон'
         : pairingState.pairedDeviceName.trim();
+
     final pairCode = pairingState.pairCode.trim();
     final id = pairCode.isEmpty ? pairedName : 'paired_$pairCode';
 
@@ -278,10 +278,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       return '';
     }
 
-    return text
-        .split(' ')
-        .where((part) => part.trim().isNotEmpty)
-        .join(' ');
+    return text.split(' ').where((part) => part.trim().isNotEmpty).join(' ');
   }
 
   String _phoneNumber(NativeForwardedMessage message) {
@@ -372,7 +369,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Отсканируйте QR-код с рабочего телефона. Если камеры нет — сгенерируйте код вручную.',
+                  'Отсканируйте QR-код с рабочего телефона.\n'
+                      'Если камеры нет — сгенерируйте код вручную.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: AppColors.textSecondary,
@@ -477,141 +475,141 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _showPairCodeSheet(DevicePairingState state) async {
-    final qrPayload = pairingService.createQrPayload(state);
+    Timer? pairingCheckTimer;
+    BuildContext? sheetContext;
+    bool isSheetClosed = false;
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(22),
-        ),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 18,
-              right: 18,
-              top: 18,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 18,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.qr_code_2,
-                    color: AppColors.primary,
-                    size: 42,
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Код связки создан',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Введите этот код на рабочем телефоне во вкладке “Передача”.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: QrImageView(
-                      data: qrPayload.toQrValue(),
-                      version: QrVersions.auto,
-                      size: 210,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Код для ручного ввода',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    state.pairCode,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 34,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 6,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Сервер подставляется автоматически.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        Navigator.of(context).pop();
-                        await _confirmWorkerPhone();
-                      },
-                      child: const Text('Рабочий телефон подключён'),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('Закрыть'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+    pairingCheckTimer = Timer.periodic(
+      const Duration(seconds: 2),
+          (_) async {
+        if (isSheetClosed || !mounted) {
+          return;
+        }
+
+        try {
+          final newState = await pairingService.refreshMainPhonePairing();
+
+          if (isSheetClosed || !mounted) {
+            return;
+          }
+
+          setState(() {
+            pairingState = newState;
+            _rebuildDashboardState();
+          });
+
+          if (newState.isMainPhone && newState.isPaired) {
+            isSheetClosed = true;
+            pairingCheckTimer?.cancel();
+
+            if (sheetContext != null) {
+              Navigator.of(sheetContext!).pop();
+            }
+
+            _showSnackBar('Рабочий телефон привязан.');
+          }
+        } catch (_) {}
       },
     );
-  }
 
-  Future<void> _confirmWorkerPhone() async {
     try {
-      final newState = await pairingService.confirmWorkerPhone();
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: AppColors.card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(22),
+          ),
+        ),
+        builder: (context) {
+          sheetContext = context;
 
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        pairingState = newState;
-        _rebuildDashboardState();
-      });
-
-      await _loadDashboardData();
-      _showSnackBar('Рабочий телефон привязан.');
-    } on DevicePairingException catch (error) {
-      _showSnackBar(error.message);
-    } catch (_) {
-      _showSnackBar('Не удалось подтвердить связку.');
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 18,
+                right: 18,
+                top: 18,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.pin,
+                      color: AppColors.primary,
+                      size: 42,
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Код связки создан',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Введите этот код на рабочем телефоне во вкладке '
+                          '“Передача”. Окно закроется автоматически после '
+                          'подключения.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Код для ручного ввода',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      state.pairCode,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 38,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 7,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Ожидаем подключение рабочего телефона...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text('Закрыть'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    } finally {
+      isSheetClosed = true;
+      pairingCheckTimer.cancel();
     }
   }
+
 
   void _onModeChanged(AppMode mode) {
     if (mode == AppMode.receiver) {
@@ -667,7 +665,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             style: TextStyle(color: AppColors.textPrimary),
           ),
           content: Text(
-            'Телефон "${device.name}" будет отвязан от главного телефона. '
+            'Телефон "${device.name}" будет отвязан от главного телефона.\n'
                 'Связь будет сброшена, а новые SMS и PUSH с этого подключения '
                 'больше не будут приниматься.',
             style: const TextStyle(color: AppColors.textSecondary),
