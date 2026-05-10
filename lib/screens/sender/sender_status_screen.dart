@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../models/app_mode.dart';
 import '../../services/app_mode_service.dart';
+import '../../services/device_pairing_service.dart';
 import '../../services/sender_settings_service.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/mode_switch_header.dart';
@@ -20,20 +22,52 @@ class SenderStatusScreen extends StatefulWidget {
 
 class _SenderStatusScreenState extends State<SenderStatusScreen> {
   final SenderSettingsService _settingsService = const SenderSettingsService();
+  final DevicePairingService _pairingService = DevicePairingService();
+
+  final TextEditingController _deviceNameController = TextEditingController(
+    text: 'Рабочий телефон',
+  );
+  final TextEditingController _pairCodeController = TextEditingController();
+  final TextEditingController _serverUrlController = TextEditingController();
 
   SenderSettingsState? settings;
+  DevicePairingState pairingState = const DevicePairingState.empty();
+  WorkerPairingQrPayload? workerQrPayload;
+
   bool pushNotificationsEnabled = true;
   bool isLoading = true;
+  bool isSaving = false;
+  String message = '';
+
+  bool get isWorkerPhonePaired {
+    return pairingState.isPaired && pairingState.isWorkerPhone;
+  }
 
   @override
   void initState() {
     super.initState();
     AppModeService.setMode(AppMode.sender);
-    _loadSettings();
+    _loadData();
   }
 
-  Future<void> _loadSettings() async {
+  @override
+  void dispose() {
+    _deviceNameController.dispose();
+    _pairCodeController.dispose();
+    _serverUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
     final loadedSettings = await _settingsService.load();
+    final loadedPairingState = await _pairingService.loadState();
+
+    WorkerPairingQrPayload? qrPayload;
+    if (!loadedPairingState.isPaired) {
+      qrPayload = await _pairingService.createWorkerQrPayload(
+        deviceName: loadedSettings.deviceName,
+      );
+    }
 
     if (!mounted) {
       return;
@@ -41,7 +75,12 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
 
     setState(() {
       settings = loadedSettings;
+      pairingState = loadedPairingState;
+      workerQrPayload = qrPayload;
       pushNotificationsEnabled = loadedSettings.pushForwarding;
+      _deviceNameController.text = loadedSettings.deviceName.trim().isEmpty
+          ? 'Рабочий телефон'
+          : loadedSettings.deviceName.trim();
       isLoading = false;
     });
   }
@@ -52,7 +91,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     }
 
     AppModeService.setMode(AppMode.receiver);
-
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -64,7 +102,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   Future<void> _onPushNotificationsChanged(bool value) async {
     final currentSettings = settings;
 
-    if (currentSettings == null) {
+    if (currentSettings == null || !isWorkerPhonePaired) {
       return;
     }
 
@@ -79,6 +117,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   }
 
   void _onNavTap(int index) {
+    if (!isWorkerPhonePaired) {
+      return;
+    }
+
     if (index == 0) {
       return;
     }
@@ -97,6 +139,91 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     );
   }
 
+  Future<void> _refreshWorkerQr() async {
+    final payload = await _pairingService.createWorkerQrPayload(
+      deviceName: _deviceNameController.text,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      workerQrPayload = payload;
+      message = 'QR-код обновлён.';
+    });
+  }
+
+  Future<void> _connectByManualCode() async {
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
+    try {
+      final newState = await _pairingService.connectWorkerPhone(
+        deviceName: _deviceNameController.text,
+        pairCode: _pairCodeController.text,
+        serverUrl: _serverUrlController.text,
+      );
+
+      final loadedSettings = await _settingsService.load();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        pairingState = newState;
+        settings = loadedSettings;
+        pushNotificationsEnabled = loadedSettings.pushForwarding;
+        isSaving = false;
+        message = 'Рабочий телефон привязан. Теперь доступно меню передачи.';
+      });
+    } on DevicePairingException catch (error) {
+      _setError(error.message);
+    } catch (_) {
+      _setError('Не удалось привязать рабочий телефон.');
+    }
+  }
+
+  Future<void> _resetPairing() async {
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
+    await _pairingService.resetPairing();
+    final loadedSettings = await _settingsService.load();
+    final payload = await _pairingService.createWorkerQrPayload(
+      deviceName: loadedSettings.deviceName,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      settings = loadedSettings;
+      pairingState = const DevicePairingState.empty();
+      workerQrPayload = payload;
+      _pairCodeController.clear();
+      isSaving = false;
+      message = 'Связка сброшена.';
+    });
+  }
+
+  void _setError(String text) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      isSaving = false;
+      message = text;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentSettings = settings;
@@ -109,7 +236,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
             ModeSwitchHeader(
               currentMode: AppMode.sender,
               onModeChanged: _onModeChanged,
-              pushNotificationsEnabled: pushNotificationsEnabled,
+              pushNotificationsEnabled:
+              isWorkerPhonePaired && pushNotificationsEnabled,
               onPushNotificationsChanged: _onPushNotificationsChanged,
             ),
             Expanded(
@@ -120,37 +248,286 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
                 ),
               )
                   : RefreshIndicator(
-                onRefresh: _loadSettings,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    _StatusCard(settings: currentSettings),
-                    const SizedBox(height: 14),
-                    _InfoCard(settings: currentSettings),
-                    const SizedBox(height: 14),
-                    _MenuButton(
-                      icon: Icons.settings_outlined,
-                      title: 'Настройки передачи',
-                      subtitle: 'SMS, PUSH, фон и интернет',
-                      onTap: () => _onNavTap(1),
-                    ),
-                    const SizedBox(height: 12),
-                    _MenuButton(
-                      icon: Icons.verified_user_outlined,
-                      title: 'Разрешения Android',
-                      subtitle: 'SMS, уведомления и работа в фоне',
-                      onTap: () => _onNavTap(2),
-                    ),
-                  ],
-                ),
+                onRefresh: _loadData,
+                child: isWorkerPhonePaired
+                    ? _buildPairedContent(currentSettings)
+                    : _buildPairingContent(),
               ),
             ),
           ],
         ),
       ),
-      bottomNavigationBar: SenderBottomNavBar(
+      bottomNavigationBar: isWorkerPhonePaired
+          ? SenderBottomNavBar(
         currentIndex: 0,
         onTap: _onNavTap,
+      )
+          : null,
+    );
+  }
+
+  Widget _buildPairingContent() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _WorkerPairingIntroCard(
+          deviceNameController: _deviceNameController,
+        ),
+        const SizedBox(height: 14),
+        _WorkerQrCard(
+          payload: workerQrPayload,
+          onRefresh: isSaving ? null : _refreshWorkerQr,
+        ),
+        const SizedBox(height: 14),
+        _ManualPairingCard(
+          pairCodeController: _pairCodeController,
+          serverUrlController: _serverUrlController,
+          isSaving: isSaving,
+          onConnect: _connectByManualCode,
+        ),
+        if (message.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _MessageCard(message: message),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPairedContent(SenderSettingsState currentSettings) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _StatusCard(settings: currentSettings),
+        const SizedBox(height: 14),
+        _InfoCard(settings: currentSettings),
+        const SizedBox(height: 14),
+        _MenuButton(
+          icon: Icons.settings_outlined,
+          title: 'Настройки передачи',
+          subtitle: 'SMS, PUSH, фон и интернет',
+          onTap: () => _onNavTap(1),
+        ),
+        const SizedBox(height: 12),
+        _MenuButton(
+          icon: Icons.verified_user_outlined,
+          title: 'Разрешения Android',
+          subtitle: 'SMS, уведомления и работа в фоне',
+          onTap: () => _onNavTap(2),
+        ),
+        const SizedBox(height: 12),
+        _MenuButton(
+          icon: Icons.link_off,
+          title: 'Сбросить связку',
+          subtitle: 'Вернуть рабочий телефон к экрану привязки',
+          onTap: isSaving ? () {} : _resetPairing,
+        ),
+        if (message.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _MessageCard(message: message),
+        ],
+      ],
+    );
+  }
+}
+
+class _WorkerPairingIntroCard extends StatelessWidget {
+  final TextEditingController deviceNameController;
+
+  const _WorkerPairingIntroCard({
+    required this.deviceNameController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.send_to_mobile,
+                color: AppColors.primary,
+                size: 30,
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Связка рабочего телефона',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Покажите QR-код главному телефону. На главном телефоне нажмите “+ добавить” и отсканируйте этот код.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: deviceNameController,
+            textInputAction: TextInputAction.done,
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration: const InputDecoration(
+              labelText: 'Название этого рабочего телефона',
+              hintText: 'Например: Рабочий телефон 1',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkerQrCard extends StatelessWidget {
+  final WorkerPairingQrPayload? payload;
+  final VoidCallback? onRefresh;
+
+  const _WorkerQrCard({
+    required this.payload,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final currentPayload = payload;
+
+    return AppCard(
+      child: Column(
+        children: [
+          const Text(
+            'QR-код для главного телефона',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: currentPayload == null
+                ? const SizedBox(
+              width: 210,
+              height: 210,
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
+            )
+                : QrImageView(
+              data: currentPayload.toQrValue(),
+              version: QrVersions.auto,
+              size: 210,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'После сканирования главный телефон создаст код связки. Если камера недоступна — используйте ручной ввод ниже.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Обновить QR-код'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManualPairingCard extends StatelessWidget {
+  final TextEditingController pairCodeController;
+  final TextEditingController serverUrlController;
+  final bool isSaving;
+  final VoidCallback onConnect;
+
+  const _ManualPairingCard({
+    required this.pairCodeController,
+    required this.serverUrlController,
+    required this.isSaving,
+    required this.onConnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Запасной вариант',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Введите код и адрес сервера, которые сгенерировал главный телефон.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: pairCodeController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration: const InputDecoration(
+              labelText: 'Код с главного телефона',
+              hintText: 'Введите 6 цифр',
+              border: OutlineInputBorder(),
+              counterText: '',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: serverUrlController,
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.done,
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration: const InputDecoration(
+              labelText: 'Адрес сервера',
+              hintText: 'http://45.80.68.83:3000',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 14),
+          ElevatedButton.icon(
+            onPressed: isSaving ? null : onConnect,
+            icon: const Icon(Icons.link),
+            label: Text(
+              isSaving ? 'Привязываю...' : 'Привязать рабочий телефон',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -347,6 +724,28 @@ class _MenuButton extends StatelessWidget {
               color: AppColors.primary,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageCard extends StatelessWidget {
+  final String message;
+
+  const _MessageCard({
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 14,
         ),
       ),
     );

@@ -31,17 +31,24 @@ class _QrPairingScannerScreenState extends State<QrPairingScannerScreen> {
     }
 
     final rawValue = capture.barcodes.firstOrNull?.rawValue ?? '';
-    final payload = DevicePairingQrPayload.fromQrValue(rawValue);
 
-    if (payload == null || !payload.isValid) {
-      setState(() {
-        errorText = 'Это не QR-код VidRA для связки телефонов.';
-      });
+    final mainPairingPayload = DevicePairingQrPayload.fromQrValue(rawValue);
+    if (mainPairingPayload != null && mainPairingPayload.isValid) {
+      isHandled = true;
+      Navigator.of(context).pop(mainPairingPayload);
       return;
     }
 
-    isHandled = true;
-    Navigator.of(context).pop(payload);
+    final workerPayload = WorkerPairingQrPayload.fromQrValue(rawValue);
+    if (workerPayload != null) {
+      isHandled = true;
+      Navigator.of(context).pop(workerPayload);
+      return;
+    }
+
+    setState(() {
+      errorText = 'Это не QR-код VidRA для связки телефонов.';
+    });
   }
 
   @override
