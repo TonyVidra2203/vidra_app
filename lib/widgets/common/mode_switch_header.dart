@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../models/app_mode.dart';
+import '../../services/app_mode_service.dart';
 
 class ModeSwitchHeader extends StatelessWidget {
   final AppMode currentMode;
@@ -117,8 +118,27 @@ class _ModeSegmentSwitch extends StatelessWidget {
 
   bool get isReceiver => currentMode == AppMode.receiver;
 
+  void _showLockedMessage(BuildContext context) {
+    final activatedMode = AppModeService.activatedMode;
+
+    if (activatedMode == null) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Этот телефон уже активирован как "${activatedMode.title}".',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final receiverEnabled = AppModeService.canUseMode(AppMode.receiver);
+    final senderEnabled = AppModeService.canUseMode(AppMode.sender);
+
     return Container(
       height: 48,
       padding: const EdgeInsets.all(4),
@@ -152,13 +172,19 @@ class _ModeSegmentSwitch extends StatelessWidget {
                 title: 'Приём',
                 icon: Icons.call_received,
                 isActive: isReceiver,
-                onTap: () => onModeChanged(AppMode.receiver),
+                isEnabled: receiverEnabled,
+                onTap: receiverEnabled
+                    ? () => onModeChanged(AppMode.receiver)
+                    : () => _showLockedMessage(context),
               ),
               _ModeSwitchItem(
                 title: 'Передача',
                 icon: Icons.call_made,
                 isActive: !isReceiver,
-                onTap: () => onModeChanged(AppMode.sender),
+                isEnabled: senderEnabled,
+                onTap: senderEnabled
+                    ? () => onModeChanged(AppMode.sender)
+                    : () => _showLockedMessage(context),
               ),
             ],
           ),
@@ -172,42 +198,51 @@ class _ModeSwitchItem extends StatelessWidget {
   final String title;
   final IconData icon;
   final bool isActive;
+  final bool isEnabled;
   final VoidCallback onTap;
 
   const _ModeSwitchItem({
     required this.title,
     required this.icon,
     required this.isActive,
+    required this.isEnabled,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? AppColors.background : AppColors.textSecondary;
+    final color = isActive
+        ? AppColors.background
+        : isEnabled
+        ? AppColors.textSecondary
+        : AppColors.textSecondary.withOpacity(0.45);
 
     return Expanded(
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                color: color,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(
+          child: Opacity(
+            opacity: isEnabled || isActive ? 1 : 0.55,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isEnabled || isActive ? icon : Icons.lock_outline,
                   color: color,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
+                  size: 18,
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
