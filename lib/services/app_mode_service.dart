@@ -63,6 +63,7 @@ class AppModeService {
 
   static Future<void> resetActivation() async {
     final prefs = await SharedPreferences.getInstance();
+
     await prefs.remove(_activatedModeKey);
 
     activatedMode = null;

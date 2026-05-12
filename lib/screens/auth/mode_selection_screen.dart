@@ -14,40 +14,33 @@ class ModeSelectionScreen extends StatefulWidget {
 }
 
 class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
-  bool isLoading = true;
-  AppMode? activatedMode;
+  bool isSelecting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadActivatedMode();
-  }
-
-  Future<void> _loadActivatedMode() async {
-    await AppModeService.ensureInitialized();
-
-    if (!mounted) {
+  Future<void> _selectMode(AppMode mode) async {
+    if (isSelecting) {
       return;
     }
 
     setState(() {
-      activatedMode = AppModeService.activatedMode;
-      isLoading = false;
+      isSelecting = true;
     });
-  }
 
-  Future<void> _selectMode(AppMode mode) async {
-    final canActivate = await AppModeService.activateMode(mode);
+    final activated = await AppModeService.activateMode(mode);
 
     if (!mounted) {
       return;
     }
 
-    if (!canActivate) {
+    if (!activated) {
+      setState(() {
+        isSelecting = false;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Этот телефон уже активирован как "${activatedMode?.title}".',
+            'Этот телефон уже активирован как '
+                '"${AppModeService.activatedMode?.title ?? 'другой режим'}".',
           ),
         ),
       );
@@ -70,20 +63,12 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final receiverEnabled = activatedMode == null ||
-        activatedMode == AppMode.receiver;
-    final senderEnabled = activatedMode == null || activatedMode == AppMode.sender;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(18),
-          child: isLoading
-              ? const Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          )
-              : Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 30),
@@ -96,11 +81,9 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
                 ),
               ),
               const SizedBox(height: 10),
-              Text(
-                activatedMode == null
-                    ? 'Укажите, как будет работать это устройство'
-                    : 'Этот телефон уже активирован как "${activatedMode!.title}"',
-                style: const TextStyle(
+              const Text(
+                'Укажите, как будет работать это устройство',
+                style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 16,
                 ),
@@ -109,20 +92,16 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
               _ModeCard(
                 icon: Icons.phone_android,
                 title: AppMode.receiver.title,
-                subtitle: receiverEnabled
-                    ? AppMode.receiver.subtitle
-                    : 'Недоступно: телефон уже работает в режиме передачи',
-                enabled: receiverEnabled,
+                subtitle: AppMode.receiver.subtitle,
+                isDisabled: isSelecting,
                 onTap: () => _selectMode(AppMode.receiver),
               ),
               const SizedBox(height: 14),
               _ModeCard(
                 icon: Icons.send_to_mobile,
                 title: AppMode.sender.title,
-                subtitle: senderEnabled
-                    ? AppMode.sender.subtitle
-                    : 'Недоступно: телефон уже работает в режиме приёма',
-                enabled: senderEnabled,
+                subtitle: AppMode.sender.subtitle,
+                isDisabled: isSelecting,
                 onTap: () => _selectMode(AppMode.sender),
               ),
             ],
@@ -137,27 +116,23 @@ class _ModeCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final bool enabled;
+  final bool isDisabled;
   final VoidCallback onTap;
 
   const _ModeCard({
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.enabled,
+    required this.isDisabled,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final contentColor =
-    enabled ? AppColors.textPrimary : AppColors.textSecondary;
-    final iconColor = enabled ? AppColors.primary : AppColors.textSecondary;
-
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.55,
+    return Opacity(
+      opacity: isDisabled ? 0.65 : 1,
+      child: GestureDetector(
+        onTap: isDisabled ? null : onTap,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(18),
@@ -168,7 +143,7 @@ class _ModeCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(icon, color: iconColor, size: 34),
+              Icon(icon, color: AppColors.primary, size: 34),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -176,8 +151,8 @@ class _ModeCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
-                        color: contentColor,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -193,10 +168,7 @@ class _ModeCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(
-                enabled ? Icons.chevron_right : Icons.lock_outline,
-                color: iconColor,
-              ),
+              const Icon(Icons.chevron_right, color: AppColors.primary),
             ],
           ),
         ),

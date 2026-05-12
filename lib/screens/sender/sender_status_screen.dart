@@ -23,7 +23,6 @@ class SenderStatusScreen extends StatefulWidget {
 class _SenderStatusScreenState extends State<SenderStatusScreen> {
   final SenderSettingsService _settingsService = const SenderSettingsService();
   final DevicePairingService _pairingService = DevicePairingService();
-
   final TextEditingController _pairCodeController = TextEditingController();
 
   SenderSettingsState? settings;
@@ -57,7 +56,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   Future<void> _loadData() async {
     final loadedSettings = await _settingsService.load();
     final loadedPairingState = await _pairingService.loadState();
-
     final shouldShowPairingQr =
         !loadedPairingState.isPaired || !loadedPairingState.isWorkerPhone;
 
@@ -70,6 +68,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
             : loadedSettings.deviceName.trim(),
         phoneNumber: '',
       );
+    }
+
+    if (loadedPairingState.isPaired && loadedPairingState.isWorkerPhone) {
+      await AppModeService.activateMode(AppMode.sender);
     }
 
     if (!mounted) {
@@ -157,6 +159,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
         pairCode: _pairCodeController.text,
       );
 
+      await AppModeService.activateMode(AppMode.sender);
+
       final updatedSettings = await _settingsService.load();
 
       if (!mounted) {
@@ -168,7 +172,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
         settings = updatedSettings;
         pushNotificationsEnabled = updatedSettings.pushForwarding;
         isSaving = false;
-        message = 'Телефон передачи привязан. Теперь доступно меню передачи.';
+        message = 'Телефон передачи привязан.\nТеперь доступно меню передачи.';
       });
     } on DevicePairingException catch (error) {
       _setError(error.message);
@@ -184,8 +188,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     });
 
     await _pairingService.resetPairing();
+    await AppModeService.resetActivation();
 
     final loadedSettings = await _settingsService.load();
+
     final payload = await _pairingService.createWorkerQrPayload(
       deviceName: loadedSettings.deviceName.trim().isEmpty
           ? 'Телефон передачи'
@@ -204,7 +210,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       _pairCodeController.clear();
       showManualCodeInput = false;
       isSaving = false;
-      message = 'Связка сброшена.';
+      message =
+      'Связка сброшена. Теперь снова доступны вкладки Приём и Передача.';
     });
   }
 
@@ -234,6 +241,10 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
               pushNotificationsEnabled:
               isWorkerPhonePaired && pushNotificationsEnabled,
               onPushNotificationsChanged: _onPushNotificationsChanged,
+              visibleModes: isWorkerPhonePaired
+                  ? const [AppMode.sender]
+                  : AppMode.values,
+              onResetPairing: isWorkerPhonePaired ? _resetPairing : null,
             ),
             Expanded(
               child: isLoading || currentSettings == null
@@ -626,7 +637,9 @@ class _InfoCard extends StatelessWidget {
           const SizedBox(height: 12),
           _StatusRow(
             title: 'Интернет',
-            value: settings.onlyWithInternet ? 'Только онлайн' : 'Без ограничения',
+            value: settings.onlyWithInternet
+                ? 'Только онлайн'
+                : 'Без ограничения',
             isActive: !settings.onlyWithInternet,
           ),
         ],

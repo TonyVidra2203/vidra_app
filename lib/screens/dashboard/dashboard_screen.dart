@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
   final DevicePairingService pairingService = DevicePairingService();
 
-  StreamSubscription<void>? messageUpdatesSubscription;
+  StreamSubscription<dynamic>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
 
   List<NativeForwardedMessage> latestMessages = [];
@@ -103,7 +103,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _listenMessageUpdates() {
     messageUpdatesSubscription?.cancel();
-
     messageUpdatesSubscription = nativeService.messageUpdates.listen((_) {
       _loadDashboardData();
     });
@@ -111,7 +110,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _startFallbackRefresh() {
     fallbackRefreshTimer?.cancel();
-
     fallbackRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
           (_) => _loadDashboardData(),
@@ -131,6 +129,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       if (!mounted) {
         return;
+      }
+
+      if (loadedPairingState.isMainPhone && loadedPairingState.isPaired) {
+        await AppModeService.activateMode(AppMode.receiver);
       }
 
       if (messages.isEmpty && hasLoadedOnce && loadedPairingState.isPaired) {
@@ -192,7 +194,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (pairedDevice != null &&
         !deletedDeviceIds.contains(pairedDevice.id) &&
-        !result.any((device) => device.id == pairedDevice.id)) {
+        !result.any(
+              (device) =>
+          device.id == pairedDevice.id ||
+              _sameDeviceName(device.name, pairedDevice.name),
+        )) {
       result.insert(0, pairedDevice);
     }
 
@@ -207,7 +213,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     final pairedName = pairingState.pairedDeviceName.trim().isEmpty
         ? 'Рабочий телефон'
         : pairingState.pairedDeviceName.trim();
-
     final pairCode = pairingState.pairCode.trim();
     final id = pairCode.isEmpty ? pairedName : 'paired_$pairCode';
     final isConnected = pairingState.isPaired;
@@ -292,6 +297,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     return 'Не указан';
+  }
+
+  bool _sameDeviceName(String first, String second) {
+    return first.trim().toLowerCase() == second.trim().toLowerCase();
   }
 
   bool _isRecentlyActive(int receivedAt) {
@@ -455,6 +464,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         pairedDeviceName: pairedDeviceName,
       );
 
+      await AppModeService.activateMode(AppMode.receiver);
+
       if (!mounted) {
         return;
       }
@@ -504,6 +515,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           });
 
           if (newState.isMainPhone && newState.isPaired) {
+            await AppModeService.activateMode(AppMode.receiver);
+
             isSheetClosed = true;
             pairingCheckTimer?.cancel();
 
@@ -658,6 +671,60 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Future<void> _resetMainPhonePairing() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.card,
+          title: const Text(
+            'Отвязать телефон?',
+            style: TextStyle(color: AppColors.textPrimary),
+          ),
+          content: const Text(
+            'Связка с телефоном передачи будет удалена. После этого сверху снова появятся две вкладки: Приём и Передача.',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(
+                'Отвязать',
+                style: TextStyle(color: AppColors.danger),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await pairingService.resetPairing();
+    await AppModeService.resetActivation();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      pairingState = const DevicePairingState.empty();
+      latestMessages = [];
+      devices = [];
+      events = [];
+      hasLoadedOnce = false;
+      _rebuildDashboardState();
+    });
+
+    _showSnackBar('Телефон отвязан');
+  }
+
   Future<void> _deleteDevice(DeviceModel device) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -707,6 +774,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
 
       await pairingService.resetPairing();
+      await AppModeService.resetActivation();
       pairingState = const DevicePairingState.empty();
     }
 
@@ -741,6 +809,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isMainPhoneLocked =
+        pairingState.isMainPhone && pairingState.isPaired;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -751,6 +822,11 @@ class _DashboardScreenState extends State<DashboardScreen>
               pushNotificationsEnabled: pushNotificationsEnabled,
               onModeChanged: _onModeChanged,
               onPushNotificationsChanged: _onPushNotificationsChanged,
+              visibleModes: isMainPhoneLocked
+                  ? const [AppMode.receiver]
+                  : AppMode.values,
+              onResetPairing:
+              isMainPhoneLocked ? _resetMainPhonePairing : null,
             ),
             Expanded(
               child: SingleChildScrollView(
