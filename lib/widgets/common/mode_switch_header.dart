@@ -32,7 +32,6 @@ class ModeSwitchHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final canShowReceiver = visibleModes.contains(AppMode.receiver);
     final canShowSender = visibleModes.contains(AppMode.sender);
-
     final isSingleMode = visibleModes.length == 1;
 
     return Padding(
@@ -48,11 +47,11 @@ class ModeSwitchHeader extends StatelessWidget {
                 size: 32,
               ),
               const SizedBox(width: 18),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'VidRA',
                       style: TextStyle(
                         color: AppColors.textPrimary,
@@ -60,15 +59,21 @@ class ModeSwitchHeader extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      'SMS & Push Forwarder',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(height: 4),
+                    if (isSingleMode)
+                      _HeaderRoleBadge(
+                        mode: visibleModes.first,
+                        onResetPairing: onResetPairing,
+                      )
+                    else
+                      const Text(
+                        'SMS & Push Forwarder',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -80,14 +85,7 @@ class ModeSwitchHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-
-          /// Если режим один — показываем закреплённый режим
-          if (isSingleMode)
-            _LockedModePanel(
-              mode: visibleModes.first,
-              onResetPairing: onResetPairing,
-            )
-          else
+          if (!isSingleMode)
             _ModeSegmentSwitch(
               currentMode: currentMode,
               canShowReceiver: canShowReceiver,
@@ -96,6 +94,86 @@ class ModeSwitchHeader extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _HeaderRoleBadge extends StatelessWidget {
+  final AppMode mode;
+  final VoidCallback? onResetPairing;
+
+  const _HeaderRoleBadge({
+    required this.mode,
+    required this.onResetPairing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isReceiver = mode == AppMode.receiver;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          constraints: const BoxConstraints(minHeight: 28),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 5,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: AppColors.cardBorder,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isReceiver ? Icons.call_received : Icons.call_made,
+                color: AppColors.primary,
+                size: 15,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                mode.title,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (onResetPairing != null) ...[
+          const SizedBox(width: 6),
+          Tooltip(
+            message: 'Отвязать телефон',
+            child: InkWell(
+              onTap: onResetPairing,
+              borderRadius: BorderRadius.circular(999),
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.cardBorder,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.link_off,
+                  color: AppColors.textSecondary,
+                  size: 15,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -128,81 +206,6 @@ class _PushNotificationSwitch extends StatelessWidget {
           inactiveTrackColor: AppColors.cardBorder,
         ),
       ],
-    );
-  }
-}
-
-class _LockedModePanel extends StatelessWidget {
-  final AppMode mode;
-  final VoidCallback? onResetPairing;
-
-  const _LockedModePanel({
-    required this.mode,
-    required this.onResetPairing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(
-        minHeight: 48,
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 10,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.35),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              mode == AppMode.receiver
-                  ? Icons.call_received
-                  : Icons.call_made,
-              color: AppColors.background,
-              size: 19,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              mode.title,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-
-          /// Кнопка отвязки
-          if (onResetPairing != null)
-            TextButton.icon(
-              onPressed: onResetPairing,
-              icon: const Icon(
-                Icons.link_off,
-                size: 18,
-              ),
-              label: const Text('Отвязать'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
@@ -244,8 +247,7 @@ class _ModeSegmentSwitch extends StatelessWidget {
           AnimatedAlign(
             duration: const Duration(milliseconds: 230),
             curve: Curves.easeOutCubic,
-            alignment:
-            isReceiver ? Alignment.centerLeft : Alignment.centerRight,
+            alignment: isReceiver ? Alignment.centerLeft : Alignment.centerRight,
             child: FractionallySizedBox(
               widthFactor: 1 / visibleItems.length,
               child: Container(
@@ -296,9 +298,7 @@ class _ModeSwitchItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive
-        ? AppColors.background
-        : AppColors.textSecondary;
+    final color = isActive ? AppColors.background : AppColors.textSecondary;
 
     return Expanded(
       child: InkWell(

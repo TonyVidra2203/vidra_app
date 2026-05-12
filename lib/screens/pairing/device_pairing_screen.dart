@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -28,9 +30,12 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   DevicePairingState state = const DevicePairingState.empty();
   WorkerPairingQrPayload? workerQrPayload;
 
+  Timer? remoteUnpairTimer;
+
   bool isLoading = true;
   bool isSaving = false;
   bool isManualCodeVisible = false;
+
   String message = '';
 
   @override
@@ -41,6 +46,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   @override
   void dispose() {
+    remoteUnpairTimer?.cancel();
     deviceNameController.dispose();
     phoneNumberController.dispose();
     pairCodeController.dispose();
@@ -57,13 +63,14 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     deviceNameController.text = loadedState.deviceName.trim().isEmpty
         ? 'Рабочий телефон'
         : loadedState.deviceName;
-
     phoneNumberController.text = loadedState.phoneNumber;
 
     setState(() {
       state = loadedState;
       isLoading = false;
     });
+
+    _updateRemoteUnpairWatcher(loadedState);
 
     if (!loadedState.isPaired) {
       await _refreshWorkerQrPayload();
@@ -105,8 +112,11 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       setState(() {
         state = newState;
         isSaving = false;
-        message = 'Телефон подключён. SMS и PUSH будут передаваться на главный телефон.';
+        message = 'Телефон подключён.\n'
+            'SMS и PUSH будут передаваться на главный телефон.';
       });
+
+      _updateRemoteUnpairWatcher(newState);
     } on DevicePairingException catch (error) {
       _setError(error.message);
     } catch (_) {
@@ -134,6 +144,51 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       message = 'Связка сброшена.';
     });
 
+    _updateRemoteUnpairWatcher(state);
+    await _refreshWorkerQrPayload();
+  }
+
+  void _updateRemoteUnpairWatcher(DevicePairingState currentState) {
+    remoteUnpairTimer?.cancel();
+    remoteUnpairTimer = null;
+
+    if (!currentState.isPaired) {
+      return;
+    }
+
+    remoteUnpairTimer = Timer.periodic(
+      const Duration(seconds: 6),
+          (_) => _syncRemoteUnpair(),
+    );
+  }
+
+  Future<void> _syncRemoteUnpair() async {
+    if (isSaving || !state.isPaired) {
+      return;
+    }
+
+    final syncedState = await service.syncRemoteUnpair();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (syncedState.isPaired) {
+      setState(() {
+        state = syncedState;
+      });
+      return;
+    }
+
+    setState(() {
+      state = const DevicePairingState.empty();
+      pairCodeController.clear();
+      isManualCodeVisible = false;
+      message = 'Главный телефон сбросил связку. '
+          'Этот телефон возвращён в режим подключения.';
+    });
+
+    _updateRemoteUnpairWatcher(state);
     await _refreshWorkerQrPayload();
   }
 
@@ -204,7 +259,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Покажите этот QR-код главному телефону. '
+              'Покажите этот QR-код главному телефону.\n'
                   'После сканирования главный телефон создаст код связки.',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -393,9 +448,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
               ),
             ),
             const SizedBox(height: 18),
-            TextButton(
+            TextButton.icon(
               onPressed: isSaving ? null : _resetPairing,
-              child: const Text('Сбросить связку'),
+              icon: const Icon(Icons.link_off),
+              label: const Text('Сбросить связку'),
             ),
           ],
         ),

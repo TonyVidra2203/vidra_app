@@ -135,6 +135,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         await AppModeService.activateMode(AppMode.receiver);
       }
 
+      if (!loadedPairingState.isMainPhone && pairingState.isMainPhone) {
+        await AppModeService.resetActivation();
+      }
+
       if (messages.isEmpty && hasLoadedOnce && loadedPairingState.isPaired) {
         setState(() {
           pairingState = loadedPairingState;
@@ -288,7 +292,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       return '';
     }
 
-    return text.split(' ').where((part) => part.trim().isNotEmpty).join(' ');
+    return text
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .join(' ');
   }
 
   String _phoneNumber(NativeForwardedMessage message) {
@@ -516,7 +523,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
           if (newState.isMainPhone && newState.isPaired) {
             await AppModeService.activateMode(AppMode.receiver);
-
             isSheetClosed = true;
             pairingCheckTimer?.cancel();
 
@@ -531,7 +537,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
 
     try {
-      await showModalBottomSheet<void>(
+      await showModalBottomSheet(
         context: context,
         isScrollControlled: true,
         backgroundColor: AppColors.card,
@@ -634,7 +640,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     AppModeService.setMode(AppMode.sender);
-
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -682,7 +687,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             style: TextStyle(color: AppColors.textPrimary),
           ),
           content: const Text(
-            'Связка с телефоном передачи будет удалена. После этого сверху снова появятся две вкладки: Приём и Передача.',
+            'Связка с телефоном передачи будет удалена. '
+                'После этого сверху снова появятся две вкладки: Приём и Передача.',
             style: TextStyle(color: AppColors.textSecondary),
           ),
           actions: [
@@ -768,13 +774,19 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (pairingState.isMainPhone || pairingState.isPaired) {
       final pairCode = pairingState.pairCode.trim();
+      final targetDeviceId = device.id.startsWith('paired_') ? '' : device.id;
 
       if (pairCode.isNotEmpty) {
         deletedDeviceIds.add('paired_$pairCode');
       }
 
-      await pairingService.resetPairing();
+      await pairingService.sendUnpairEvent(
+        pairingState,
+        targetDeviceId: targetDeviceId,
+      );
+      await pairingService.resetPairing(notifyRemote: false);
       await AppModeService.resetActivation();
+
       pairingState = const DevicePairingState.empty();
     }
 
@@ -809,8 +821,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isMainPhoneLocked =
-        pairingState.isMainPhone && pairingState.isPaired;
+    final isMainPhoneLocked = pairingState.isMainPhone && pairingState.isPaired;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -825,8 +836,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               visibleModes: isMainPhoneLocked
                   ? const [AppMode.receiver]
                   : AppMode.values,
-              onResetPairing:
-              isMainPhoneLocked ? _resetMainPhonePairing : null,
+              onResetPairing: isMainPhoneLocked ? _resetMainPhonePairing : null,
             ),
             Expanded(
               child: SingleChildScrollView(
