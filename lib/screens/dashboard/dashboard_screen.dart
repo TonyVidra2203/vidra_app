@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final NativeMainPhoneService nativeService = const NativeMainPhoneService();
   final DevicePairingService pairingService = DevicePairingService();
 
-  StreamSubscription<dynamic>? messageUpdatesSubscription;
+  StreamSubscription<void>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
 
   List<NativeForwardedMessage> latestMessages = [];
@@ -43,11 +43,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   Set<String> deletedDeviceIds = {};
 
   DevicePairingState pairingState = const DevicePairingState.empty();
+  EventModel? pairingConnectedEvent;
 
   bool hasLoadedOnce = false;
+  bool hasConfirmedPairing = false;
   bool isLoading = false;
   bool isPairing = false;
   bool pushNotificationsEnabled = true;
+
+  bool get _isMainPhoneLocked {
+    return pairingState.isMainPhone &&
+        (pairingState.isPaired ||
+            hasConfirmedPairing ||
+            latestMessages.isNotEmpty);
+  }
 
   @override
   void initState() {
@@ -111,7 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _startFallbackRefresh() {
     fallbackRefreshTimer?.cancel();
     fallbackRefreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 5),
           (_) => _loadDashboardData(),
     );
   }
@@ -131,7 +140,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         return;
       }
 
-      if (loadedPairingState.isMainPhone && loadedPairingState.isPaired) {
+      if (loadedPairingState.isMainPhone &&
+          (loadedPairingState.isPaired ||
+              hasConfirmedPairing ||
+              messages.isNotEmpty)) {
         await AppModeService.activateMode(AppMode.receiver);
       }
 
@@ -139,18 +151,15 @@ class _DashboardScreenState extends State<DashboardScreen>
         await AppModeService.resetActivation();
       }
 
-      if (messages.isEmpty && hasLoadedOnce && loadedPairingState.isPaired) {
-        setState(() {
-          pairingState = loadedPairingState;
-          _rebuildDashboardState();
-        });
-        return;
-      }
-
       setState(() {
         hasLoadedOnce = true;
         pairingState = loadedPairingState;
-        latestMessages = messages;
+
+        if (messages.isNotEmpty || !loadedPairingState.isPaired) {
+          latestMessages = messages;
+        }
+
+        _rememberConfirmedPairing(loadedPairingState, latestMessages);
         _rebuildDashboardState();
       });
     } finally {
@@ -158,9 +167,60 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  void _rememberConfirmedPairing(
+      DevicePairingState newState,
+      List<NativeForwardedMessage> messages,
+      ) {
+    final isConfirmed = newState.isMainPhone &&
+        (newState.isPaired || messages.isNotEmpty || hasConfirmedPairing);
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    if (!hasConfirmedPairing) {
+      pairingConnectedEvent = EventModel(
+        title: _connectedEventTitle(newState, messages),
+        time: _formatTime(DateTime.now()),
+        type: EventType.device,
+      );
+    }
+
+    hasConfirmedPairing = true;
+  }
+
+  String _connectedEventTitle(
+      DevicePairingState state,
+      List<NativeForwardedMessage> messages,
+      ) {
+    final realDeviceName =
+    messages.isEmpty ? '' : _remoteDeviceName(messages.first);
+    final stateDeviceName = state.pairedDeviceName.trim();
+    final deviceName = realDeviceName.trim().isNotEmpty
+        ? realDeviceName.trim()
+        : stateDeviceName;
+
+    if (deviceName.isEmpty) {
+      return 'Рабочий телефон успешно подключён';
+    }
+
+    return 'Рабочий телефон "$deviceName" успешно подключён';
+  }
+
   void _rebuildDashboardState() {
     devices = _buildDeviceList(latestMessages);
-    events = latestMessages.take(5).map(_mapMessageToEvent).toList();
+
+    final latestEvents = latestMessages.take(5).map(_mapMessageToEvent).toList();
+
+    if (pairingConnectedEvent != null) {
+      events = [
+        pairingConnectedEvent!,
+        ...latestEvents,
+      ].take(5).toList();
+      return;
+    }
+
+    events = latestEvents;
   }
 
   List<DeviceModel> _buildDeviceList(List<NativeForwardedMessage> messages) {
@@ -194,15 +254,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       );
     }).toList();
 
+    if (result.isNotEmpty) {
+      return result;
+    }
+
     final pairedDevice = _buildPairedDevicePlaceholder();
 
-    if (pairedDevice != null &&
-        !deletedDeviceIds.contains(pairedDevice.id) &&
-        !result.any(
-              (device) =>
-          device.id == pairedDevice.id ||
-              _sameDeviceName(device.name, pairedDevice.name),
-        )) {
+    if (pairedDevice != null && !deletedDeviceIds.contains(pairedDevice.id)) {
       result.insert(0, pairedDevice);
     }
 
@@ -217,9 +275,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     final pairedName = pairingState.pairedDeviceName.trim().isEmpty
         ? 'Рабочий телефон'
         : pairingState.pairedDeviceName.trim();
+
     final pairCode = pairingState.pairCode.trim();
     final id = pairCode.isEmpty ? pairedName : 'paired_$pairCode';
-    final isConnected = pairingState.isPaired;
+    final isConnected = pairingState.isPaired || hasConfirmedPairing;
 
     return DeviceModel(
       id: id,
@@ -304,10 +363,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     return 'Не указан';
-  }
-
-  bool _sameDeviceName(String first, String second) {
-    return first.trim().toLowerCase() == second.trim().toLowerCase();
   }
 
   bool _isRecentlyActive(int receivedAt) {
@@ -518,11 +573,13 @@ class _DashboardScreenState extends State<DashboardScreen>
 
           setState(() {
             pairingState = newState;
+            _rememberConfirmedPairing(newState, latestMessages);
             _rebuildDashboardState();
           });
 
           if (newState.isMainPhone && newState.isPaired) {
             await AppModeService.activateMode(AppMode.receiver);
+
             isSheetClosed = true;
             pairingCheckTimer?.cancel();
 
@@ -635,11 +692,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _onModeChanged(AppMode mode) {
-    if (mode == AppMode.receiver) {
+    if (mode == AppMode.receiver || _isMainPhoneLocked) {
       return;
     }
 
     AppModeService.setMode(AppMode.sender);
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -683,11 +741,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         return AlertDialog(
           backgroundColor: AppColors.card,
           title: const Text(
-            'Отвязать телефон?',
+            'Разъединить телефоны?',
             style: TextStyle(color: AppColors.textPrimary),
           ),
           content: const Text(
-            'Связка с телефоном передачи будет удалена. '
+            'Все рабочие телефоны будут разъединены с главным телефоном. '
                 'После этого сверху снова появятся две вкладки: Приём и Передача.',
             style: TextStyle(color: AppColors.textSecondary),
           ),
@@ -699,7 +757,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
               child: const Text(
-                'Отвязать',
+                'Разъединить',
                 style: TextStyle(color: AppColors.danger),
               ),
             ),
@@ -712,7 +770,24 @@ class _DashboardScreenState extends State<DashboardScreen>
       return;
     }
 
-    await pairingService.resetPairing();
+    final targetDeviceIds = devices
+        .map((device) => device.id.trim())
+        .where((id) => id.isNotEmpty && !id.startsWith('paired_'))
+        .toSet()
+        .toList();
+
+    if (pairingState.isMainPhone || pairingState.isPaired) {
+      await pairingService.sendUnpairEvent(pairingState);
+
+      for (final deviceId in targetDeviceIds) {
+        await pairingService.sendUnpairEvent(
+          pairingState,
+          targetDeviceId: deviceId,
+        );
+      }
+    }
+
+    await pairingService.resetPairing(notifyRemote: false);
     await AppModeService.resetActivation();
 
     if (!mounted) {
@@ -721,14 +796,16 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     setState(() {
       pairingState = const DevicePairingState.empty();
+      pairingConnectedEvent = null;
       latestMessages = [];
       devices = [];
       events = [];
       hasLoadedOnce = false;
+      hasConfirmedPairing = false;
       _rebuildDashboardState();
     });
 
-    _showSnackBar('Телефон отвязан');
+    _showSnackBar('Телефоны разъединены');
   }
 
   Future<void> _deleteDevice(DeviceModel device) async {
@@ -769,7 +846,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     final prefs = await SharedPreferences.getInstance();
-
     deletedDeviceIds.add(device.id);
 
     if (pairingState.isMainPhone || pairingState.isPaired) {
@@ -788,6 +864,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       await AppModeService.resetActivation();
 
       pairingState = const DevicePairingState.empty();
+      pairingConnectedEvent = null;
+      hasConfirmedPairing = false;
     }
 
     await prefs.setStringList(_deletedDevicesKey, deletedDeviceIds.toList());
@@ -821,7 +899,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isMainPhoneLocked = pairingState.isMainPhone && pairingState.isPaired;
+    final isMainPhoneLocked = _isMainPhoneLocked;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -833,9 +911,8 @@ class _DashboardScreenState extends State<DashboardScreen>
               pushNotificationsEnabled: pushNotificationsEnabled,
               onModeChanged: _onModeChanged,
               onPushNotificationsChanged: _onPushNotificationsChanged,
-              visibleModes: isMainPhoneLocked
-                  ? const [AppMode.receiver]
-                  : AppMode.values,
+              visibleModes:
+              isMainPhoneLocked ? const [AppMode.receiver] : AppMode.values,
               onResetPairing: isMainPhoneLocked ? _resetMainPhonePairing : null,
             ),
             Expanded(

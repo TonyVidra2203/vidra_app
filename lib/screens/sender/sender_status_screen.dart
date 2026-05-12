@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -25,6 +27,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   final DevicePairingService _pairingService = DevicePairingService();
   final TextEditingController _pairCodeController = TextEditingController();
 
+  Timer? remoteUnpairTimer;
+
   SenderSettingsState? settings;
   DevicePairingState pairingState = const DevicePairingState.empty();
   WorkerPairingQrPayload? workerQrPayload;
@@ -45,12 +49,57 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     super.initState();
     AppModeService.setMode(AppMode.sender);
     _loadData();
+    _startRemoteUnpairWatcher();
   }
 
   @override
   void dispose() {
+    remoteUnpairTimer?.cancel();
     _pairCodeController.dispose();
     super.dispose();
+  }
+
+  void _startRemoteUnpairWatcher() {
+    remoteUnpairTimer?.cancel();
+    remoteUnpairTimer = Timer.periodic(
+      const Duration(seconds: 5),
+          (_) => _syncRemoteUnpair(),
+    );
+  }
+
+  Future<void> _syncRemoteUnpair() async {
+    if (isLoading || isSaving || !isWorkerPhonePaired) {
+      return;
+    }
+
+    final syncedState = await _pairingService.syncRemoteUnpair();
+
+    if (!mounted || syncedState.isPaired || !pairingState.isWorkerPhone) {
+      return;
+    }
+
+    await AppModeService.resetActivation();
+
+    final loadedSettings = await _settingsService.load();
+    final payload = await _pairingService.createWorkerQrPayload(
+      deviceName: loadedSettings.deviceName.trim().isEmpty
+          ? 'Телефон передачи'
+          : loadedSettings.deviceName.trim(),
+      phoneNumber: '',
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      settings = loadedSettings;
+      pairingState = const DevicePairingState.empty();
+      workerQrPayload = payload;
+      _pairCodeController.clear();
+      showManualCodeInput = false;
+      message = 'Главный телефон разъединил связку. Подключите телефон заново.';
+    });
   }
 
   Future<void> _loadData() async {
@@ -637,9 +686,7 @@ class _InfoCard extends StatelessWidget {
           const SizedBox(height: 12),
           _StatusRow(
             title: 'Интернет',
-            value: settings.onlyWithInternet
-                ? 'Только онлайн'
-                : 'Без ограничения',
+            value: settings.onlyWithInternet ? 'Только онлайн' : 'Без ограничения',
             isActive: !settings.onlyWithInternet,
           ),
         ],

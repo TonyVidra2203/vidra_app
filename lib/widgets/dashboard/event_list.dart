@@ -15,6 +15,9 @@ class EventList extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: events.map((event) {
+        final color = _getColor(event.type);
+        final textColor = _getTextColor(event.type);
+
         return Column(
           children: [
             Padding(
@@ -23,23 +26,28 @@ class EventList extends StatelessWidget {
                 children: [
                   Icon(
                     _getIcon(event.type),
-                    color: _getColor(event.type),
+                    color: color,
                     size: 22,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       event.title,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
+                      style: TextStyle(
+                        color: textColor,
                         fontSize: 15,
+                        fontWeight: event.type == EventType.device
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                       ),
                     ),
                   ),
                   Text(
                     event.time,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
+                    style: TextStyle(
+                      color: event.type == EventType.device
+                          ? AppColors.success
+                          : AppColors.textSecondary,
                       fontSize: 13,
                     ),
                   ),
@@ -80,5 +88,13 @@ class EventList extends StatelessWidget {
       case EventType.warning:
         return AppColors.warning;
     }
+  }
+
+  Color _getTextColor(EventType type) {
+    if (type == EventType.device) {
+      return AppColors.success;
+    }
+
+    return AppColors.textPrimary;
   }
 }
