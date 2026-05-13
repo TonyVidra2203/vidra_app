@@ -26,13 +26,10 @@ class _MessagesScreenState extends State<MessagesScreen>
   Timer? refreshTimer;
 
   MessageFilter selectedFilter = MessageFilter.all;
-
   bool isSearchOpen = false;
   bool isLoading = true;
   bool isRefreshing = false;
-
   String searchQuery = '';
-
   List<MessageModel> messages = [];
 
   List<MessageModel> get filteredMessages {
@@ -68,9 +65,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   @override
   void initState() {
     super.initState();
-
     WidgetsBinding.instance.addObserver(this);
-
     _loadMessages();
     _listenMessageUpdates();
     _startAutoRefresh();
@@ -80,9 +75,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   void dispose() {
     messageUpdatesSubscription?.cancel();
     refreshTimer?.cancel();
-
     WidgetsBinding.instance.removeObserver(this);
-
     super.dispose();
   }
 
@@ -100,7 +93,6 @@ class _MessagesScreenState extends State<MessagesScreen>
         state == AppLifecycleState.detached) {
       messageUpdatesSubscription?.cancel();
       messageUpdatesSubscription = null;
-
       refreshTimer?.cancel();
       refreshTimer = null;
     }
@@ -161,9 +153,8 @@ class _MessagesScreenState extends State<MessagesScreen>
     return MessageModel(
       sender: message.displayTitle,
       text: message.displaySubtitle,
-      deviceName: message.deviceName.isEmpty
-          ? 'Рабочий телефон'
-          : message.deviceName,
+      deviceName:
+      message.deviceName.isEmpty ? 'Рабочий телефон' : message.deviceName,
       time: _formatTime(date),
       type: message.isSms ? MessageType.sms : MessageType.push,
       status: _mapStatus(message.status),
@@ -274,7 +265,6 @@ class _HeaderState extends State<_Header> {
   @override
   void initState() {
     super.initState();
-
     searchController = TextEditingController(text: widget.searchQuery);
   }
 
@@ -293,7 +283,6 @@ class _HeaderState extends State<_Header> {
   @override
   void dispose() {
     searchController.dispose();
-
     super.dispose();
   }
 
@@ -301,92 +290,148 @@ class _HeaderState extends State<_Header> {
   Widget build(BuildContext context) {
     if (widget.isSearchOpen) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                autofocus: true,
-                controller: searchController,
-                onChanged: widget.onSearchChanged,
-                style: const TextStyle(color: AppColors.textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Поиск сообщений...',
-                  hintStyle: const TextStyle(color: AppColors.textSecondary),
-                  filled: true,
-                  fillColor: AppColors.card,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: AppColors.cardBorder),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: AppColors.cardBorder),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: AppColors.primary),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          decoration: BoxDecoration(
+            color: AppColors.card.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.search,
+                color: AppColors.primary,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  autofocus: true,
+                  controller: searchController,
+                  onChanged: widget.onSearchChanged,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  cursorColor: AppColors.primary,
+                  decoration: const InputDecoration(
+                    hintText: 'Поиск сообщений...',
+                    hintStyle: TextStyle(color: AppColors.textSecondary),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            GestureDetector(
-              onTap: widget.onSearchTap,
-              child: const Icon(
-                Icons.close,
-                color: AppColors.primary,
-                size: 28,
+              const SizedBox(width: 10),
+              _HeaderIconButton(
+                icon: Icons.close,
+                onTap: widget.onSearchTap,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.message_outlined,
-            color: AppColors.primary,
-            size: 32,
-          ),
-          const SizedBox(width: 18),
-          const Expanded(
-            child: Text(
-              'Сообщения',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.card.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppColors.cardBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppColors.primary.withOpacity(0.35),
+                ),
               ),
-            ),
-          ),
-          if (widget.hasMessages)
-            GestureDetector(
-              onTap: widget.onClearTap,
               child: const Icon(
-                Icons.delete_outline,
-                color: AppColors.danger,
-                size: 27,
+                Icons.chat_bubble_outline,
+                color: AppColors.primary,
+                size: 24,
               ),
             ),
-          if (widget.hasMessages) const SizedBox(width: 16),
-          GestureDetector(
-            onTap: widget.onSearchTap,
-            child: const Icon(
-              Icons.search,
-              color: AppColors.primary,
-              size: 28,
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Сообщения',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'SMS и PUSH с главного телефона',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
             ),
+            if (widget.hasMessages) ...[
+              _HeaderIconButton(
+                icon: Icons.delete_outline,
+                color: AppColors.danger,
+                onTap: widget.onClearTap,
+              ),
+              const SizedBox(width: 8),
+            ],
+            _HeaderIconButton(
+              icon: Icons.search,
+              onTap: widget.onSearchTap,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _HeaderIconButton({
+    required this.icon,
+    required this.onTap,
+    this.color = AppColors.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.background.withOpacity(0.45),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            icon,
+            color: color,
+            size: 22,
           ),
-        ],
+        ),
       ),
     );
   }

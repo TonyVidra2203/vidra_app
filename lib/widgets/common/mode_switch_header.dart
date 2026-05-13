@@ -9,14 +9,8 @@ class ModeSwitchHeader extends StatelessWidget {
   final bool pushNotificationsEnabled;
   final ValueChanged<bool>? onPushNotificationsChanged;
 
-  /// Какие режимы показывать сверху.
-  ///
-  /// До привязки -> [receiver, sender]
-  /// После привязки главного -> [receiver]
-  /// После привязки рабочего -> [sender]
   final List<AppMode> visibleModes;
 
-  /// Кнопка разъединения связки телефонов.
   final VoidCallback? onResetPairing;
 
   const ModeSwitchHeader({
@@ -29,6 +23,14 @@ class ModeSwitchHeader extends StatelessWidget {
     this.onResetPairing,
   });
 
+  bool get _isSingleSenderMode {
+    return visibleModes.length == 1 && visibleModes.contains(AppMode.sender);
+  }
+
+  bool get _isSingleReceiverMode {
+    return visibleModes.length == 1 && visibleModes.contains(AppMode.receiver);
+  }
+
   @override
   Widget build(BuildContext context) {
     final canShowReceiver = visibleModes.contains(AppMode.receiver);
@@ -36,159 +38,148 @@ class ModeSwitchHeader extends StatelessWidget {
     final isSingleMode = visibleModes.length == 1;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.menu,
-                color: AppColors.primary,
-                size: 32,
-              ),
-              const SizedBox(width: 18),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'VidRA',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'SMS & Push Forwarder',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (onPushNotificationsChanged != null)
-                _PushNotificationSwitch(
-                  value: pushNotificationsEnabled,
-                  onChanged: onPushNotificationsChanged!,
-                ),
-            ],
+          _HeaderCard(
+            currentMode: currentMode,
+            isSingleSenderMode: _isSingleSenderMode,
+            isSingleReceiverMode: _isSingleReceiverMode,
           ),
-          if (!isSingleMode) ...[
-            const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          if (!isSingleMode)
             _ModeSegmentSwitch(
               currentMode: currentMode,
               canShowReceiver: canShowReceiver,
               canShowSender: canShowSender,
               onModeChanged: onModeChanged,
             ),
-          ] else if (onResetPairing != null) ...[
-            const SizedBox(height: 16),
-            _DisconnectPairingButton(onResetPairing: onResetPairing),
-          ],
         ],
       ),
     );
   }
 }
 
-class _DisconnectPairingButton extends StatelessWidget {
-  final VoidCallback? onResetPairing;
+class _HeaderCard extends StatelessWidget {
+  final AppMode currentMode;
+  final bool isSingleSenderMode;
+  final bool isSingleReceiverMode;
 
-  const _DisconnectPairingButton({
-    required this.onResetPairing,
+  const _HeaderCard({
+    required this.currentMode,
+    required this.isSingleSenderMode,
+    required this.isSingleReceiverMode,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.card,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onResetPairing,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          height: 48,
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppColors.primary.withOpacity(0.35),
-            ),
+    final isSender = currentMode == AppMode.sender;
+
+    final title = isSingleSenderMode
+        ? 'Рабочий телефон'
+        : isSingleReceiverMode
+        ? 'Главный телефон'
+        : 'VidRA';
+
+    final subtitle = isSingleSenderMode
+        ? 'Передача SMS и PUSH'
+        : isSingleReceiverMode
+        ? 'Приём сообщений'
+        : 'SMS & PUSH Forwarder';
+
+    final icon = isSender
+        ? Icons.send_to_mobile_rounded
+        : Icons.phone_android_rounded;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.card.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        children: [
+          _MenuButton(
+            icon: Icons.menu_rounded,
+            onTap: () {},
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.link_off_rounded,
-                  color: AppColors.danger,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'Разъединить телефоны',
-                  style: TextStyle(
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: 15,
+                    fontSize: 22,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.primary,
-                size: 24,
-              ),
-            ],
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 14),
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withOpacity(0.35),
+              ),
+            ),
+            child: Icon(
+              icon,
+              color: AppColors.primary,
+              size: 24,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _PushNotificationSwitch extends StatelessWidget {
-  final bool value;
-  final ValueChanged<bool> onChanged;
+class _MenuButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
 
-  const _PushNotificationSwitch({
-    required this.value,
-    required this.onChanged,
+  const _MenuButton({
+    required this.icon,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(
-          value ? Icons.notifications_active : Icons.notifications_off,
-          color: value ? AppColors.primary : AppColors.textSecondary,
-          size: 22,
+    return Material(
+      color: AppColors.background.withOpacity(0.45),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            icon,
+            color: AppColors.primary,
+            size: 22,
+          ),
         ),
-        const SizedBox(width: 6),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: AppColors.primary,
-          activeTrackColor: AppColors.primary.withOpacity(0.35),
-          inactiveThumbColor: AppColors.textSecondary,
-          inactiveTrackColor: AppColors.cardBorder,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -219,11 +210,9 @@ class _ModeSegmentSwitch extends StatelessWidget {
       height: 48,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.35),
-        ),
+        color: AppColors.card.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.cardBorder),
       ),
       child: Stack(
         children: [
@@ -236,8 +225,11 @@ class _ModeSegmentSwitch extends StatelessWidget {
               child: Container(
                 height: double.infinity,
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppColors.primary.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: AppColors.primary.withOpacity(0.45),
+                  ),
                 ),
               ),
             ),
@@ -247,14 +239,14 @@ class _ModeSegmentSwitch extends StatelessWidget {
               if (canShowReceiver)
                 _ModeSwitchItem(
                   title: 'Приём',
-                  icon: Icons.call_received,
+                  icon: Icons.call_received_rounded,
                   isActive: isReceiver,
                   onTap: () => onModeChanged(AppMode.receiver),
                 ),
               if (canShowSender)
                 _ModeSwitchItem(
                   title: 'Передача',
-                  icon: Icons.call_made,
+                  icon: Icons.call_made_rounded,
                   isActive: !isReceiver,
                   onTap: () => onModeChanged(AppMode.sender),
                 ),
@@ -281,12 +273,12 @@ class _ModeSwitchItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? AppColors.background : AppColors.textSecondary;
+    final color = isActive ? AppColors.primary : AppColors.textSecondary;
 
     return Expanded(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Center(
           child: Row(
             mainAxisSize: MainAxisSize.min,

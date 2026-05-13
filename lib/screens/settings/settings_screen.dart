@@ -78,25 +78,73 @@ class _SettingsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(18, 18, 18, 8),
-      child: Row(
-        children: [
-          Icon(
-            Icons.settings_outlined,
-            color: AppColors.primary,
-            size: 26,
-          ),
-          SizedBox(width: 10),
-          Text(
-            'Настройки',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 23,
-              fontWeight: FontWeight.w800,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.card.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppColors.cardBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppColors.primary.withOpacity(0.35),
+                ),
+              ),
+              child: const Icon(
+                Icons.settings_outlined,
+                color: AppColors.primary,
+                size: 24,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Настройки',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'Параметры главного телефона',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.background.withOpacity(0.45),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.tune_rounded,
+                color: AppColors.primary,
+                size: 22,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -37,7 +37,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   bool isLoading = true;
   bool isSaving = false;
   bool showManualCodeInput = false;
-
   String message = '';
 
   bool get isWorkerPhonePaired {
@@ -61,6 +60,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
 
   void _startRemoteUnpairWatcher() {
     remoteUnpairTimer?.cancel();
+
     remoteUnpairTimer = Timer.periodic(
       const Duration(seconds: 5),
           (_) => _syncRemoteUnpair(),
@@ -81,6 +81,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     await AppModeService.resetActivation();
 
     final loadedSettings = await _settingsService.load();
+
     final payload = await _pairingService.createWorkerQrPayload(
       deviceName: loadedSettings.deviceName.trim().isEmpty
           ? 'Телефон передачи'
@@ -98,13 +99,14 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       workerQrPayload = payload;
       _pairCodeController.clear();
       showManualCodeInput = false;
-      message = 'Главный телефон разъединил связку. Подключите телефон заново.';
+      message = 'Главный телефон разъединил связку.\nПодключите телефон заново.';
     });
   }
 
   Future<void> _loadData() async {
     final loadedSettings = await _settingsService.load();
     final loadedPairingState = await _pairingService.loadState();
+
     final shouldShowPairingQr =
         !loadedPairingState.isPaired || !loadedPairingState.isWorkerPhone;
 
@@ -259,8 +261,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       _pairCodeController.clear();
       showManualCodeInput = false;
       isSaving = false;
-      message =
-      'Связка сброшена. Теперь снова доступны вкладки Приём и Передача.';
+      message = 'Связка сброшена.\nТеперь снова доступны вкладки Приём и Передача.';
     });
   }
 
@@ -290,9 +291,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
               pushNotificationsEnabled:
               isWorkerPhonePaired && pushNotificationsEnabled,
               onPushNotificationsChanged: _onPushNotificationsChanged,
-              visibleModes: isWorkerPhonePaired
-                  ? const [AppMode.sender]
-                  : AppMode.values,
+              visibleModes:
+              isWorkerPhonePaired ? const [AppMode.sender] : AppMode.values,
               onResetPairing: isWorkerPhonePaired ? _resetPairing : null,
             ),
             Expanded(
@@ -349,35 +349,647 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _StatusCard(settings: currentSettings),
+        _WorkerHeroCard(settings: currentSettings),
         const SizedBox(height: 14),
-        _InfoCard(settings: currentSettings),
+        _QuickStatusGrid(settings: currentSettings),
         const SizedBox(height: 14),
-        _MenuButton(
-          icon: Icons.settings_outlined,
-          title: 'Настройки передачи',
-          subtitle: 'SMS, PUSH, фон и интернет',
-          onTap: () => _onNavTap(1),
-        ),
-        const SizedBox(height: 12),
-        _MenuButton(
-          icon: Icons.verified_user_outlined,
-          title: 'Разрешения Android',
-          subtitle: 'SMS, уведомления и работа в фоне',
-          onTap: () => _onNavTap(2),
-        ),
-        const SizedBox(height: 12),
-        _MenuButton(
-          icon: Icons.link_off,
-          title: 'Сбросить связку',
-          subtitle: 'Вернуть телефон передачи к экрану привязки',
-          onTap: isSaving ? () {} : _resetPairing,
+        _TransmissionCard(settings: currentSettings),
+        const SizedBox(height: 14),
+        _QuickActionsCard(
+          isSaving: isSaving,
+          onSettingsTap: () => _onNavTap(1),
+          onPermissionsTap: () => _onNavTap(2),
+          onRefreshTap: _loadData,
+          onResetPairing: _resetPairing,
         ),
         if (message.isNotEmpty) ...[
           const SizedBox(height: 14),
           _MessageCard(message: message),
         ],
       ],
+    );
+  }
+}
+
+class _WorkerHeroCard extends StatelessWidget {
+  final SenderSettingsState settings;
+
+  const _WorkerHeroCard({
+    required this.settings,
+  });
+
+  bool get isTransmissionEnabled {
+    return settings.smsForwarding || settings.pushForwarding;
+  }
+
+  String get deviceName {
+    final value = settings.deviceName.trim();
+
+    if (value.isEmpty) {
+      return 'Рабочий телефон';
+    }
+
+    return value;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = isTransmissionEnabled ? AppColors.success : AppColors.warning;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.card.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: statusColor.withOpacity(0.08),
+            blurRadius: 26,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: statusColor.withOpacity(0.38),
+                  ),
+                ),
+                child: Icon(
+                  isTransmissionEnabled
+                      ? Icons.send_to_mobile_rounded
+                      : Icons.pause_circle_outline_rounded,
+                  color: statusColor,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isTransmissionEnabled
+                          ? 'Передача работает'
+                          : 'Передача выключена',
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      deviceName,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _OnlineBadge(isActive: isTransmissionEnabled),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Этот телефон принимает SMS и PUSH-уведомления, а затем передаёт их на главный телефон VidRA.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroMiniInfo(
+                  icon: Icons.sms_outlined,
+                  title: 'SMS',
+                  value: settings.smsForwarding ? 'Активно' : 'Выкл.',
+                  isActive: settings.smsForwarding,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _HeroMiniInfo(
+                  icon: Icons.notifications_none_rounded,
+                  title: 'PUSH',
+                  value: settings.pushForwarding ? 'Активно' : 'Выкл.',
+                  isActive: settings.pushForwarding,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnlineBadge extends StatelessWidget {
+  final bool isActive;
+
+  const _OnlineBadge({
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? AppColors.success : AppColors.warning;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isActive ? 'ON' : 'OFF',
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroMiniInfo extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final bool isActive;
+
+  const _HeroMiniInfo({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? AppColors.primary : AppColors.textSecondary;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickStatusGrid extends StatelessWidget {
+  final SenderSettingsState settings;
+
+  const _QuickStatusGrid({
+    required this.settings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _StatusTile(
+            icon: Icons.link_rounded,
+            title: 'Связка',
+            value: 'Подключена',
+            color: AppColors.success,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _StatusTile(
+            icon: Icons.wifi_tethering_rounded,
+            title: 'Передача',
+            value: settings.onlyWithInternet ? 'Онлайн' : 'Всегда',
+            color: AppColors.primary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final Color color;
+
+  const _StatusTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            color: color,
+            size: 24,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransmissionCard extends StatelessWidget {
+  final SenderSettingsState settings;
+
+  const _TransmissionCard({
+    required this.settings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Что сейчас включено',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Основные параметры рабочего телефона',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _TransmissionRow(
+            icon: Icons.sms_outlined,
+            title: 'SMS-сообщения',
+            subtitle: 'Передача входящих SMS',
+            isActive: settings.smsForwarding,
+          ),
+          const SizedBox(height: 12),
+          _TransmissionRow(
+            icon: Icons.notifications_none_rounded,
+            title: 'PUSH-уведомления',
+            subtitle: 'Передача уведомлений приложений',
+            isActive: settings.pushForwarding,
+          ),
+          const SizedBox(height: 12),
+          _TransmissionRow(
+            icon: Icons.battery_charging_full_rounded,
+            title: 'Фоновая работа',
+            subtitle: 'Работа без открытого приложения',
+            isActive: settings.backgroundMode,
+          ),
+          const SizedBox(height: 12),
+          _TransmissionRow(
+            icon: Icons.public_rounded,
+            title: 'Интернет',
+            subtitle: settings.onlyWithInternet
+                ? 'Передача только при подключении'
+                : 'Передача без строгого ограничения',
+            isActive: !settings.onlyWithInternet,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransmissionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool isActive;
+
+  const _TransmissionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? AppColors.success : AppColors.textSecondary;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background.withOpacity(0.38),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              icon,
+              color: color,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _SmallStatePill(isActive: isActive),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmallStatePill extends StatelessWidget {
+  final bool isActive;
+
+  const _SmallStatePill({
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? AppColors.success : AppColors.textSecondary;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.13),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        isActive ? 'Вкл' : 'Выкл',
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickActionsCard extends StatelessWidget {
+  final bool isSaving;
+  final VoidCallback onSettingsTap;
+  final VoidCallback onPermissionsTap;
+  final VoidCallback onRefreshTap;
+  final VoidCallback onResetPairing;
+
+  const _QuickActionsCard({
+    required this.isSaving,
+    required this.onSettingsTap,
+    required this.onPermissionsTap,
+    required this.onRefreshTap,
+    required this.onResetPairing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Быстрые действия',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ActionButton(
+            icon: Icons.settings_outlined,
+            title: 'Настройки передачи',
+            subtitle: 'SMS, PUSH, фон и интернет',
+            onTap: onSettingsTap,
+          ),
+          const SizedBox(height: 10),
+          _ActionButton(
+            icon: Icons.verified_user_outlined,
+            title: 'Разрешения Android',
+            subtitle: 'Проверить доступы телефона',
+            onTap: onPermissionsTap,
+          ),
+          const SizedBox(height: 10),
+          _ActionButton(
+            icon: Icons.refresh_rounded,
+            title: 'Обновить статус',
+            subtitle: 'Перепроверить текущие параметры',
+            onTap: onRefreshTap,
+          ),
+          const SizedBox(height: 10),
+          _ActionButton(
+            icon: Icons.link_off_rounded,
+            title: 'Сбросить связку',
+            subtitle: 'Отвязать этот рабочий телефон',
+            isDanger: true,
+            onTap: isSaving ? null : onResetPairing,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool isDanger;
+  final VoidCallback? onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.isDanger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDanger ? AppColors.danger : AppColors.primary;
+
+    return Material(
+      color: AppColors.background.withOpacity(0.38),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.13),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: color,
+                size: 24,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -595,203 +1207,6 @@ class _ManualCodeForm extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  final SenderSettingsState settings;
-
-  const _StatusCard({
-    required this.settings,
-  });
-
-  bool get isReady {
-    return settings.smsForwarding || settings.pushForwarding;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isReady ? AppColors.success : AppColors.warning;
-
-    return AppCard(
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: color.withOpacity(0.16),
-            child: Icon(
-              isReady ? Icons.send_to_mobile : Icons.pause_circle_outline,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isReady ? 'Передача активна' : 'Передача выключена',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Этот телефон отправляет SMS и PUSH на главный телефон.',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoCard extends StatelessWidget {
-  final SenderSettingsState settings;
-
-  const _InfoCard({
-    required this.settings,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        children: [
-          _StatusRow(
-            title: 'SMS',
-            value: settings.smsForwarding ? 'Включено' : 'Выключено',
-            isActive: settings.smsForwarding,
-          ),
-          const SizedBox(height: 12),
-          _StatusRow(
-            title: 'PUSH',
-            value: settings.pushForwarding ? 'Включено' : 'Выключено',
-            isActive: settings.pushForwarding,
-          ),
-          const SizedBox(height: 12),
-          _StatusRow(
-            title: 'Фоновый режим',
-            value: settings.backgroundMode ? 'Включён' : 'Выключен',
-            isActive: settings.backgroundMode,
-          ),
-          const SizedBox(height: 12),
-          _StatusRow(
-            title: 'Интернет',
-            value: settings.onlyWithInternet ? 'Только онлайн' : 'Без ограничения',
-            isActive: !settings.onlyWithInternet,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusRow extends StatelessWidget {
-  final String title;
-  final String value;
-  final bool isActive;
-
-  const _StatusRow({
-    required this.title,
-    required this.value,
-    required this.isActive,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isActive ? AppColors.success : AppColors.textSecondary;
-
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: color,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MenuButton extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _MenuButton({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: AppColors.primary,
-              size: 30,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right,
-              color: AppColors.primary,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
