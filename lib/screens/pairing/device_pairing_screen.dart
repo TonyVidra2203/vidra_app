@@ -157,7 +157,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
 
     remoteUnpairTimer = Timer.periodic(
-      const Duration(seconds: 6),
+      const Duration(seconds: 2),
           (_) => _syncRemoteUnpair(),
     );
   }
@@ -220,6 +220,18 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         title: const Text('Передача'),
         backgroundColor: AppColors.background,
         foregroundColor: AppColors.textPrimary,
+        actions: [
+          if (state.isPaired)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: IconButton(
+                onPressed: isSaving ? null : _resetPairing,
+                tooltip: 'Разъединить устройства',
+                icon: const Icon(Icons.link_off_rounded),
+                color: AppColors.textSecondary,
+              ),
+            ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -446,12 +458,6 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
                 color: AppColors.textSecondary,
                 fontSize: 14,
               ),
-            ),
-            const SizedBox(height: 18),
-            TextButton.icon(
-              onPressed: isSaving ? null : _resetPairing,
-              icon: const Icon(Icons.link_off),
-              label: const Text('Сбросить связку'),
             ),
           ],
         ),
