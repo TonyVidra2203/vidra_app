@@ -734,80 +734,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Future<void> _resetMainPhonePairing() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppColors.card,
-          title: const Text(
-            'Разъединить телефоны?',
-            style: TextStyle(color: AppColors.textPrimary),
-          ),
-          content: const Text(
-            'Все рабочие телефоны будут разъединены с главным телефоном. '
-                'После этого сверху снова появятся две вкладки: Приём и Передача.',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Отмена'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text(
-                'Разъединить',
-                style: TextStyle(color: AppColors.danger),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    final targetDeviceIds = devices
-        .map((device) => device.id.trim())
-        .where((id) => id.isNotEmpty && !id.startsWith('paired_'))
-        .toSet()
-        .toList();
-
-    if (pairingState.isMainPhone || pairingState.isPaired) {
-      await pairingService.sendUnpairEvent(pairingState);
-
-      for (final deviceId in targetDeviceIds) {
-        await pairingService.sendUnpairEvent(
-          pairingState,
-          targetDeviceId: deviceId,
-        );
-      }
-    }
-
-    await pairingService.resetPairing(notifyRemote: false);
-    await AppModeService.resetActivation();
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      pairingState = const DevicePairingState.empty();
-      pairingConnectedEvent = null;
-      latestMessages = [];
-      devices = [];
-      events = [];
-      hasLoadedOnce = false;
-      hasConfirmedPairing = false;
-      _rebuildDashboardState();
-    });
-
-    _showSnackBar('Телефоны разъединены');
-  }
-
   Future<void> _deleteDevice(DeviceModel device) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -913,7 +839,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               onPushNotificationsChanged: _onPushNotificationsChanged,
               visibleModes:
               isMainPhoneLocked ? const [AppMode.receiver] : AppMode.values,
-              onResetPairing: isMainPhoneLocked ? _resetMainPhonePairing : null,
+              onResetPairing: null,
             ),
             Expanded(
               child: SingleChildScrollView(

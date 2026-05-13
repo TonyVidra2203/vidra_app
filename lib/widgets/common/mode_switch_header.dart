@@ -79,16 +79,18 @@ class ModeSwitchHeader extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 16),
-          if (isSingleMode)
-            _DisconnectPairingButton(onResetPairing: onResetPairing)
-          else
+          if (!isSingleMode) ...[
+            const SizedBox(height: 16),
             _ModeSegmentSwitch(
               currentMode: currentMode,
               canShowReceiver: canShowReceiver,
               canShowSender: canShowSender,
               onModeChanged: onModeChanged,
             ),
+          ] else if (onResetPairing != null) ...[
+            const SizedBox(height: 16),
+            _DisconnectPairingButton(onResetPairing: onResetPairing),
+          ],
         ],
       ),
     );
