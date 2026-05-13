@@ -36,6 +36,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   StreamSubscription<void>? messageUpdatesSubscription;
   Timer? fallbackRefreshTimer;
+  Timer? remoteUnpairCheckTimer;
+
+  int dashboardRevision = 0;
 
   List<NativeForwardedMessage> latestMessages = [];
   List<DeviceModel> devices = [];
@@ -49,6 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool hasConfirmedPairing = false;
   bool isLoading = false;
   bool isPairing = false;
+  bool isCheckingRemoteUnpair = false;
   bool pushNotificationsEnabled = true;
 
   bool get _isMainPhoneLocked {
@@ -67,12 +71,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     _loadDashboardData();
     _listenMessageUpdates();
     _startFallbackRefresh();
+    _startRemoteUnpairCheck();
   }
 
   @override
   void dispose() {
     messageUpdatesSubscription?.cancel();
     fallbackRefreshTimer?.cancel();
+    remoteUnpairCheckTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -83,6 +89,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       _loadDashboardData();
       _listenMessageUpdates();
       _startFallbackRefresh();
+      _startRemoteUnpairCheck();
       return;
     }
 
@@ -93,6 +100,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       messageUpdatesSubscription = null;
       fallbackRefreshTimer?.cancel();
       fallbackRefreshTimer = null;
+      remoteUnpairCheckTimer?.cancel();
+      remoteUnpairCheckTimer = null;
     }
   }
 
@@ -125,12 +134,75 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  void _startRemoteUnpairCheck() {
+    remoteUnpairCheckTimer?.cancel();
+    remoteUnpairCheckTimer = Timer.periodic(
+      const Duration(seconds: 1),
+          (_) => _checkRemoteUnpairNow(),
+    );
+  }
+
+  Future<void> _checkRemoteUnpairNow() async {
+    if (isCheckingRemoteUnpair) {
+      return;
+    }
+
+    final hasVisiblePairing = pairingState.isMainPhone &&
+        (pairingState.isPaired ||
+            pairingState.hasPairCode ||
+            hasConfirmedPairing ||
+            latestMessages.isNotEmpty ||
+            devices.isNotEmpty);
+
+    if (!hasVisiblePairing) {
+      return;
+    }
+
+    isCheckingRemoteUnpair = true;
+
+    try {
+      final newState = await pairingService.refreshMainPhonePairing();
+
+      if (!mounted) {
+        return;
+      }
+
+      if (!newState.isMainPhone) {
+        await _clearDashboardAfterPairingReset();
+      }
+    } catch (_) {
+      // Тихо пропускаем сетевые ошибки: следующая проверка повторится автоматически.
+    } finally {
+      isCheckingRemoteUnpair = false;
+    }
+  }
+
+  Future<void> _clearDashboardAfterPairingReset() async {
+    dashboardRevision++;
+
+    if (mounted) {
+      setState(() {
+        pairingState = const DevicePairingState.empty();
+        latestMessages = [];
+        devices = [];
+        events = [];
+        pairingConnectedEvent = null;
+        hasConfirmedPairing = false;
+        hasLoadedOnce = true;
+      });
+    }
+
+    await nativeService.clearMessages();
+    await AppModeService.resetActivation();
+  }
+
   Future<void> _loadDashboardData() async {
     if (isLoading) {
       return;
     }
 
     isLoading = true;
+    final revisionAtStart = dashboardRevision;
 
     try {
       final previousPairingState = pairingState;
@@ -145,11 +217,22 @@ class _DashboardScreenState extends State<DashboardScreen>
       final pairingWasResetRemotely =
           wasMainPhoneLinked && !loadedPairingState.isMainPhone;
 
-      final messages = pairingWasResetRemotely
+      final canReadMessages = loadedPairingState.isMainPhone &&
+          (loadedPairingState.hasPairCode || loadedPairingState.isPaired);
+
+      final messages = pairingWasResetRemotely || !canReadMessages
           ? <NativeForwardedMessage>[]
           : await nativeService.getMessages();
 
-      if (!mounted) {
+      if (pairingWasResetRemotely || !canReadMessages) {
+        dashboardRevision++;
+        await nativeService.clearMessages();
+      }
+
+      if (!mounted ||
+          (revisionAtStart != dashboardRevision &&
+              !pairingWasResetRemotely &&
+              canReadMessages)) {
         return;
       }
 
@@ -168,7 +251,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         hasLoadedOnce = true;
         pairingState = loadedPairingState;
 
-        if (pairingWasResetRemotely) {
+        if (pairingWasResetRemotely || !canReadMessages) {
           latestMessages = [];
           devices = [];
           events = [];
@@ -796,6 +879,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     final prefs = await SharedPreferences.getInstance();
     deletedDeviceIds.add(device.id);
+    dashboardRevision++;
 
     if (pairingState.isMainPhone || pairingState.isPaired) {
       final pairCode = pairingState.pairCode.trim();
@@ -810,6 +894,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         targetDeviceId: targetDeviceId,
       );
       await pairingService.resetPairing(notifyRemote: false);
+      await nativeService.clearMessages();
       await AppModeService.resetActivation();
 
       pairingState = const DevicePairingState.empty();
