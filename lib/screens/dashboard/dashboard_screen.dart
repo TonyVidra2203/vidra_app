@@ -120,7 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _startFallbackRefresh() {
     fallbackRefreshTimer?.cancel();
     fallbackRefreshTimer = Timer.periodic(
-      const Duration(seconds: 5),
+      const Duration(seconds: 2),
           (_) => _loadDashboardData(),
     );
   }
@@ -133,8 +133,21 @@ class _DashboardScreenState extends State<DashboardScreen>
     isLoading = true;
 
     try {
+      final previousPairingState = pairingState;
       final loadedPairingState = await pairingService.refreshMainPhonePairing();
-      final messages = await nativeService.getMessages();
+
+      final wasMainPhoneLinked = previousPairingState.isMainPhone &&
+          (previousPairingState.isPaired ||
+              previousPairingState.hasPairCode ||
+              hasConfirmedPairing ||
+              latestMessages.isNotEmpty);
+
+      final pairingWasResetRemotely =
+          wasMainPhoneLinked && !loadedPairingState.isMainPhone;
+
+      final messages = pairingWasResetRemotely
+          ? <NativeForwardedMessage>[]
+          : await nativeService.getMessages();
 
       if (!mounted) {
         return;
@@ -154,6 +167,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() {
         hasLoadedOnce = true;
         pairingState = loadedPairingState;
+
+        if (pairingWasResetRemotely) {
+          latestMessages = [];
+          devices = [];
+          events = [];
+          pairingConnectedEvent = null;
+          hasConfirmedPairing = false;
+          _rebuildDashboardState();
+          return;
+        }
 
         if (messages.isNotEmpty || !loadedPairingState.isPaired) {
           latestMessages = messages;

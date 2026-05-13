@@ -567,17 +567,23 @@ class DevicePairingService {
 
     final localDeviceId = await _getOrCreateDeviceId();
     final now = DateTime.now();
+    final cleanPairCode = state.pairCode.trim();
+    final cleanTargetDeviceId = targetDeviceId.trim();
 
     final payload = {
       'type': 'unpair',
       'eventType': 'unpair',
+      'action': 'unpair',
       'source': 'flutter',
       'client': 'vidra',
-      'pairCode': state.pairCode,
+      'pairCode': cleanPairCode,
+      'pair_code': cleanPairCode,
       'deviceName': state.deviceName,
       'phoneNumber': state.phoneNumber,
       'deviceId': localDeviceId,
-      'targetDeviceId': targetDeviceId.trim(),
+      'sourceDeviceId': localDeviceId,
+      'targetDeviceId': cleanTargetDeviceId,
+      'target': cleanTargetDeviceId,
       'sender': state.phoneNumber,
       'title': 'VidRA unpair',
       'body': 'Связка телефонов сброшена',
@@ -585,28 +591,23 @@ class DevicePairingService {
       'receivedAt': now.millisecondsSinceEpoch,
       'sentAt': now.millisecondsSinceEpoch,
       'createdAt': now.toIso8601String(),
+      'timestamp': now.toIso8601String(),
     };
 
-    final sentToPairUrl = await _postJson(
-      relayUrl: state.relayUrl,
-      relayApiKey: state.relayApiKey,
-      payload: payload,
-    );
+    var sent = false;
 
-    if (sentToPairUrl) {
-      return true;
+    final relayUrls = _buildRelayReadWriteUrls(state.relayUrl);
+    for (final relayUrl in relayUrls) {
+      final isSent = await _postJson(
+        relayUrl: relayUrl,
+        relayApiKey: state.relayApiKey,
+        payload: payload,
+      );
+
+      sent = sent || isSent;
     }
 
-    final fallbackUrl = _buildEventsFallbackUrl(state.relayUrl);
-    if (fallbackUrl.isEmpty || fallbackUrl == state.relayUrl) {
-      return false;
-    }
-
-    return _postJson(
-      relayUrl: fallbackUrl,
-      relayApiKey: state.relayApiKey,
-      payload: payload,
-    );
+    return sent;
   }
 
   DevicePairingState _normalizeLoadedState(DevicePairingState state) {
@@ -814,6 +815,20 @@ class DevicePairingService {
   }
 
   Future<List<Map<String, dynamic>>> _loadRelayEvents(String relayUrl) async {
+    final relayUrls = _buildRelayReadWriteUrls(relayUrl);
+    final events = <Map<String, dynamic>>[];
+
+    for (final url in relayUrls) {
+      final loadedEvents = await _loadRelayEventsFromUrl(url);
+      events.addAll(loadedEvents);
+    }
+
+    return _removeDuplicateEvents(events);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadRelayEventsFromUrl(
+      String relayUrl,
+      ) async {
     final cleanedRelayUrl = relayUrl.trim();
 
     if (cleanedRelayUrl.isEmpty) {
@@ -899,7 +914,7 @@ class DevicePairingService {
       return false;
     }
 
-    final pairCode = event['pairCode']?.toString().trim() ?? '';
+    final pairCode = _eventPairCode(event);
     if (pairCode.isNotEmpty && pairCode != state.pairCode) {
       return false;
     }
@@ -949,18 +964,20 @@ class DevicePairingService {
       return false;
     }
 
-    final pairCode = event['pairCode']?.toString().trim() ?? '';
+    final pairCode = _eventPairCode(event);
     if (pairCode.isNotEmpty && pairCode != state.pairCode) {
       return false;
     }
 
-    final eventDeviceId = event['deviceId']?.toString().trim() ?? '';
+    final eventDeviceId = _eventDeviceId(event);
     if (eventDeviceId.isNotEmpty && eventDeviceId == localDeviceId) {
       return false;
     }
 
-    final targetDeviceId = event['targetDeviceId']?.toString().trim() ?? '';
-    if (targetDeviceId.isNotEmpty && targetDeviceId != localDeviceId) {
+    final targetDeviceId = _eventTargetDeviceId(event);
+    if (targetDeviceId.isNotEmpty &&
+        localDeviceId.isNotEmpty &&
+        targetDeviceId != localDeviceId) {
       return false;
     }
 
@@ -980,7 +997,42 @@ class DevicePairingService {
   }
 
   String _eventType(Map<String, dynamic> event) {
-    return (event['eventType'] ?? event['type'] ?? '').toString().trim();
+    return (event['eventType'] ??
+        event['type'] ??
+        event['action'] ??
+        event['event'] ??
+        '')
+        .toString()
+        .trim()
+        .toLowerCase();
+  }
+
+  String _eventPairCode(Map<String, dynamic> event) {
+    return (event['pairCode'] ??
+        event['pair_code'] ??
+        event['code'] ??
+        event['room'] ??
+        '')
+        .toString()
+        .trim();
+  }
+
+  String _eventDeviceId(Map<String, dynamic> event) {
+    return (event['deviceId'] ??
+        event['sourceDeviceId'] ??
+        event['source_device_id'] ??
+        '')
+        .toString()
+        .trim();
+  }
+
+  String _eventTargetDeviceId(Map<String, dynamic> event) {
+    return (event['targetDeviceId'] ??
+        event['target_device_id'] ??
+        event['target'] ??
+        '')
+        .toString()
+        .trim();
   }
 
   DateTime? _eventReceivedAt(Map<String, dynamic> event) {
@@ -1019,6 +1071,55 @@ class DevicePairingService {
     await prefs.setString(_senderDeviceIdKey, deviceId);
 
     return deviceId;
+  }
+
+  List<Map<String, dynamic>> _removeDuplicateEvents(
+      List<Map<String, dynamic>> events,
+      ) {
+    final seen = <String>{};
+    final uniqueEvents = <Map<String, dynamic>>[];
+
+    for (final event in events) {
+      final key = [
+        _eventType(event),
+        _eventPairCode(event),
+        _eventDeviceId(event),
+        _eventTargetDeviceId(event),
+        event['receivedAt']?.toString() ?? '',
+        event['sentAt']?.toString() ?? '',
+        event['createdAt']?.toString() ?? '',
+        event['message']?.toString() ?? '',
+      ].join('|');
+
+      if (seen.contains(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      uniqueEvents.add(event);
+    }
+
+    return uniqueEvents;
+  }
+
+  List<String> _buildRelayReadWriteUrls(String relayUrl) {
+    final urls = <String>[];
+    final cleanedRelayUrl = relayUrl.trim();
+
+    void addUrl(String value) {
+      final cleanValue = value.trim();
+
+      if (cleanValue.isEmpty || urls.contains(cleanValue)) {
+        return;
+      }
+
+      urls.add(cleanValue);
+    }
+
+    addUrl(cleanedRelayUrl);
+    addUrl(_buildEventsFallbackUrl(cleanedRelayUrl));
+
+    return urls;
   }
 
   String _buildRelayUrl(String pairCode) {
