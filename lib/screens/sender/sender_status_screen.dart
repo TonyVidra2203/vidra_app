@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../models/app_mode.dart';
@@ -23,9 +24,17 @@ class SenderStatusScreen extends StatefulWidget {
 }
 
 class _SenderStatusScreenState extends State<SenderStatusScreen> {
+  static const String _quickSetupCompletedKey =
+      'sender_quick_setup_completed';
+  static const String _quickSetupPhoneNumberKey =
+      'sender_quick_setup_phone_number';
+
   final SenderSettingsService _settingsService = const SenderSettingsService();
   final DevicePairingService _pairingService = DevicePairingService();
+
   final TextEditingController _pairCodeController = TextEditingController();
+  final TextEditingController _deviceNameController = TextEditingController();
+  final TextEditingController _phoneNumberController = TextEditingController();
 
   Timer? remoteUnpairTimer;
 
@@ -37,10 +46,16 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   bool isLoading = true;
   bool isSaving = false;
   bool showManualCodeInput = false;
+  bool quickSetupCompleted = false;
+
   String message = '';
 
   bool get isWorkerPhonePaired {
     return pairingState.isPaired && pairingState.isWorkerPhone;
+  }
+
+  bool get shouldShowQuickSetup {
+    return isWorkerPhonePaired && !quickSetupCompleted;
   }
 
   @override
@@ -55,12 +70,13 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   void dispose() {
     remoteUnpairTimer?.cancel();
     _pairCodeController.dispose();
+    _deviceNameController.dispose();
+    _phoneNumberController.dispose();
     super.dispose();
   }
 
   void _startRemoteUnpairWatcher() {
     remoteUnpairTimer?.cancel();
-
     remoteUnpairTimer = Timer.periodic(
       const Duration(seconds: 5),
           (_) => _syncRemoteUnpair(),
@@ -81,7 +97,6 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     await AppModeService.resetActivation();
 
     final loadedSettings = await _settingsService.load();
-
     final payload = await _pairingService.createWorkerQrPayload(
       deviceName: loadedSettings.deviceName.trim().isEmpty
           ? 'Телефон передачи'
@@ -99,6 +114,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       workerQrPayload = payload;
       _pairCodeController.clear();
       showManualCodeInput = false;
+      quickSetupCompleted = false;
       message = 'Главный телефон разъединил связку.\nПодключите телефон заново.';
     });
   }
@@ -106,6 +122,8 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   Future<void> _loadData() async {
     final loadedSettings = await _settingsService.load();
     final loadedPairingState = await _pairingService.loadState();
+    final loadedQuickSetupCompleted = await _loadQuickSetupCompleted();
+    final savedPhoneNumber = await _loadQuickSetupPhoneNumber();
 
     final shouldShowPairingQr =
         !loadedPairingState.isPaired || !loadedPairingState.isWorkerPhone;
@@ -117,7 +135,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
         deviceName: loadedSettings.deviceName.trim().isEmpty
             ? 'Телефон передачи'
             : loadedSettings.deviceName.trim(),
-        phoneNumber: '',
+        phoneNumber: savedPhoneNumber,
       );
     }
 
@@ -129,13 +147,45 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       return;
     }
 
+    final deviceName = loadedSettings.deviceName.trim().isEmpty
+        ? 'Рабочий телефон'
+        : loadedSettings.deviceName.trim();
+
+    final phoneNumber = loadedPairingState.phoneNumber.trim().isNotEmpty
+        ? loadedPairingState.phoneNumber.trim()
+        : savedPhoneNumber;
+
+    _deviceNameController.text = deviceName;
+    _phoneNumberController.text = phoneNumber;
+
     setState(() {
       settings = loadedSettings;
       pairingState = loadedPairingState;
       workerQrPayload = qrPayload;
       pushNotificationsEnabled = loadedSettings.pushForwarding;
+      quickSetupCompleted = loadedQuickSetupCompleted;
       isLoading = false;
     });
+  }
+
+  Future<bool> _loadQuickSetupCompleted() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_quickSetupCompletedKey) ?? false;
+  }
+
+  Future<String> _loadQuickSetupPhoneNumber() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_quickSetupPhoneNumberKey)?.trim() ?? '';
+  }
+
+  Future<void> _saveQuickSetupPhoneNumber(String phoneNumber) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_quickSetupPhoneNumberKey, phoneNumber.trim());
+  }
+
+  Future<void> _saveQuickSetupCompleted(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_quickSetupCompletedKey, value);
   }
 
   void _onModeChanged(AppMode mode) {
@@ -202,15 +252,23 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
     try {
       final loadedSettings = settings ?? await _settingsService.load();
 
+      final cleanDeviceName = _deviceNameController.text.trim().isEmpty
+          ? loadedSettings.deviceName.trim().isEmpty
+          ? 'Телефон передачи'
+          : loadedSettings.deviceName.trim()
+          : _deviceNameController.text.trim();
+
+      final cleanPhoneNumber = _phoneNumberController.text.trim();
+
       final newState = await _pairingService.connectWorkerPhone(
-        deviceName: loadedSettings.deviceName.trim().isEmpty
-            ? 'Телефон передачи'
-            : loadedSettings.deviceName.trim(),
-        phoneNumber: '',
+        deviceName: cleanDeviceName,
+        phoneNumber: cleanPhoneNumber,
         pairCode: _pairCodeController.text,
       );
 
       await AppModeService.activateMode(AppMode.sender);
+      await _saveQuickSetupPhoneNumber(cleanPhoneNumber);
+      await _saveQuickSetupCompleted(false);
 
       final updatedSettings = await _settingsService.load();
 
@@ -218,18 +276,67 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
         return;
       }
 
+      _deviceNameController.text = updatedSettings.deviceName.trim().isEmpty
+          ? cleanDeviceName
+          : updatedSettings.deviceName.trim();
+
+      _phoneNumberController.text = cleanPhoneNumber;
+
       setState(() {
         pairingState = newState;
         settings = updatedSettings;
         pushNotificationsEnabled = updatedSettings.pushForwarding;
+        quickSetupCompleted = false;
         isSaving = false;
-        message = 'Телефон передачи привязан.\nТеперь доступно меню передачи.';
+        message = 'Телефон передачи привязан.\nЗаполните быстрые настройки.';
       });
     } on DevicePairingException catch (error) {
       _setError(error.message);
     } catch (_) {
       _setError('Не удалось привязать телефон передачи.');
     }
+  }
+
+  Future<void> _completeQuickSetup() async {
+    final currentSettings = settings;
+
+    if (currentSettings == null) {
+      return;
+    }
+
+    final cleanDeviceName = _deviceNameController.text.trim().isEmpty
+        ? 'Рабочий телефон'
+        : _deviceNameController.text.trim();
+
+    final cleanPhoneNumber = _phoneNumberController.text.trim();
+
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
+    final updatedSettings = currentSettings.copyWith(
+      deviceName: cleanDeviceName,
+      smsForwarding: true,
+      pushForwarding: true,
+      backgroundMode: true,
+    );
+
+    await _settingsService.save(updatedSettings);
+    await _saveQuickSetupPhoneNumber(cleanPhoneNumber);
+    await _saveQuickSetupCompleted(true);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      settings = updatedSettings;
+      pushNotificationsEnabled = updatedSettings.pushForwarding;
+      quickSetupCompleted = true;
+      isSaving = false;
+      message = 'Быстрая настройка завершена.\nРабочий телефон готов.';
+    });
   }
 
   Future<void> _resetPairing() async {
@@ -240,19 +347,27 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
 
     await _pairingService.resetPairing();
     await AppModeService.resetActivation();
+    await _saveQuickSetupCompleted(false);
 
     final loadedSettings = await _settingsService.load();
+    final savedPhoneNumber = await _loadQuickSetupPhoneNumber();
 
     final payload = await _pairingService.createWorkerQrPayload(
       deviceName: loadedSettings.deviceName.trim().isEmpty
           ? 'Телефон передачи'
           : loadedSettings.deviceName.trim(),
-      phoneNumber: '',
+      phoneNumber: savedPhoneNumber,
     );
 
     if (!mounted) {
       return;
     }
+
+    _deviceNameController.text = loadedSettings.deviceName.trim().isEmpty
+        ? 'Рабочий телефон'
+        : loadedSettings.deviceName.trim();
+
+    _phoneNumberController.text = savedPhoneNumber;
 
     setState(() {
       settings = loadedSettings;
@@ -260,6 +375,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
       workerQrPayload = payload;
       _pairCodeController.clear();
       showManualCodeInput = false;
+      quickSetupCompleted = false;
       isSaving = false;
       message = 'Связка сброшена.\nТеперь снова доступны вкладки Приём и Передача.';
     });
@@ -304,7 +420,9 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
               )
                   : RefreshIndicator(
                 onRefresh: _loadData,
-                child: isWorkerPhonePaired
+                child: shouldShowQuickSetup
+                    ? _buildQuickSetupContent(currentSettings)
+                    : isWorkerPhonePaired
                     ? _buildPairedContent(currentSettings)
                     : _buildPairingContent(),
               ),
@@ -312,7 +430,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: isWorkerPhonePaired
+      bottomNavigationBar: isWorkerPhonePaired && !shouldShowQuickSetup
           ? SenderBottomNavBar(
         currentIndex: 0,
         onTap: _onNavTap,
@@ -336,6 +454,45 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
             });
           },
           onConnect: _connectByManualCode,
+        ),
+        if (message.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _MessageCard(message: message),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildQuickSetupContent(SenderSettingsState currentSettings) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _QuickSetupHeroCard(settings: currentSettings),
+        const SizedBox(height: 14),
+        _QuickSetupInputCard(
+          deviceNameController: _deviceNameController,
+          phoneNumberController: _phoneNumberController,
+        ),
+        const SizedBox(height: 14),
+        _QuickSetupProgressCard(
+          hasDeviceName: _deviceNameController.text.trim().isNotEmpty,
+          hasPhoneNumber: _phoneNumberController.text.trim().isNotEmpty,
+          smsEnabled: currentSettings.smsForwarding,
+          pushEnabled: currentSettings.pushForwarding,
+          backgroundEnabled: currentSettings.backgroundMode,
+        ),
+        const SizedBox(height: 14),
+        _QuickSetupActionsCard(
+          isSaving: isSaving,
+          onPermissionsTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const SenderPermissionsScreen(),
+              ),
+            );
+          },
+          onCompleteTap: isSaving ? null : _completeQuickSetup,
         ),
         if (message.isNotEmpty) ...[
           const SizedBox(height: 14),
@@ -371,6 +528,428 @@ class _SenderStatusScreenState extends State<SenderStatusScreen> {
   }
 }
 
+class _QuickSetupHeroCard extends StatelessWidget {
+  final SenderSettingsState settings;
+
+  const _QuickSetupHeroCard({
+    required this.settings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.card.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.10),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _QuickSetupIcon(),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Быстрая настройка',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Рабочий телефон привязан',
+                      style: TextStyle(
+                        color: AppColors.success,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          Text(
+            'Осталось указать название телефона, номер и проверить доступы Android. После завершения откроется обычное меню рабочего телефона.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickSetupIcon extends StatelessWidget {
+  const _QuickSetupIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 54,
+      height: 54,
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.primary.withOpacity(0.36),
+        ),
+      ),
+      child: const Icon(
+        Icons.tune_rounded,
+        color: AppColors.primary,
+        size: 30,
+      ),
+    );
+  }
+}
+
+class _QuickSetupInputCard extends StatefulWidget {
+  final TextEditingController deviceNameController;
+  final TextEditingController phoneNumberController;
+
+  const _QuickSetupInputCard({
+    required this.deviceNameController,
+    required this.phoneNumberController,
+  });
+
+  @override
+  State<_QuickSetupInputCard> createState() => _QuickSetupInputCardState();
+}
+
+class _QuickSetupInputCardState extends State<_QuickSetupInputCard> {
+  @override
+  void initState() {
+    super.initState();
+    widget.deviceNameController.addListener(_refresh);
+    widget.phoneNumberController.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    widget.deviceNameController.removeListener(_refresh);
+    widget.phoneNumberController.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Данные телефона',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Эти данные помогут отличать рабочий телефон в связке VidRA.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: widget.deviceNameController,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: const InputDecoration(
+              labelText: 'Название телефона',
+              hintText: 'Например: Рабочий Samsung',
+              prefixIcon: Icon(Icons.phone_android_rounded),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: widget.phoneNumberController,
+            keyboardType: TextInputType.phone,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: const InputDecoration(
+              labelText: 'Номер телефона',
+              hintText: '+7 999 000-00-00',
+              prefixIcon: Icon(Icons.call_rounded),
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickSetupProgressCard extends StatelessWidget {
+  final bool hasDeviceName;
+  final bool hasPhoneNumber;
+  final bool smsEnabled;
+  final bool pushEnabled;
+  final bool backgroundEnabled;
+
+  const _QuickSetupProgressCard({
+    required this.hasDeviceName,
+    required this.hasPhoneNumber,
+    required this.smsEnabled,
+    required this.pushEnabled,
+    required this.backgroundEnabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final completedCount = [
+      hasDeviceName,
+      hasPhoneNumber,
+      smsEnabled,
+      pushEnabled,
+      backgroundEnabled,
+    ].where((value) => value).length;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Выполненные действия',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.13),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$completedCount/5',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _SetupStepRow(
+            title: 'Название телефона',
+            subtitle: 'Будет видно в меню рабочего телефона',
+            isDone: hasDeviceName,
+            icon: Icons.badge_outlined,
+          ),
+          const SizedBox(height: 10),
+          _SetupStepRow(
+            title: 'Номер телефона',
+            subtitle: 'Сохраняется для информации о связке',
+            isDone: hasPhoneNumber,
+            icon: Icons.call_outlined,
+          ),
+          const SizedBox(height: 10),
+          _SetupStepRow(
+            title: 'SMS-передача',
+            subtitle: 'Входящие SMS будут отправляться на главный телефон',
+            isDone: smsEnabled,
+            icon: Icons.sms_outlined,
+          ),
+          const SizedBox(height: 10),
+          _SetupStepRow(
+            title: 'PUSH-передача',
+            subtitle: 'Уведомления приложений будут передаваться дальше',
+            isDone: pushEnabled,
+            icon: Icons.notifications_none_rounded,
+          ),
+          const SizedBox(height: 10),
+          _SetupStepRow(
+            title: 'Фоновая работа',
+            subtitle: 'Приложение сможет работать без открытого экрана',
+            isDone: backgroundEnabled,
+            icon: Icons.battery_charging_full_rounded,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SetupStepRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool isDone;
+  final IconData icon;
+
+  const _SetupStepRow({
+    required this.title,
+    required this.subtitle,
+    required this.isDone,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDone ? AppColors.success : AppColors.warning;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background.withOpacity(0.38),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              isDone ? Icons.check_rounded : icon,
+              color: color,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _SmallStatePill(isActive: isDone),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickSetupActionsCard extends StatelessWidget {
+  final bool isSaving;
+  final VoidCallback onPermissionsTap;
+  final VoidCallback? onCompleteTap;
+
+  const _QuickSetupActionsCard({
+    required this.isSaving,
+    required this.onPermissionsTap,
+    required this.onCompleteTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Разрешения Android',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Проверьте SMS, уведомления и фоновую работу. После этого завершите быструю настройку.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ActionButton(
+            icon: Icons.verified_user_outlined,
+            title: 'Открыть разрешения',
+            subtitle: 'Проверить доступы рабочего телефона',
+            onTap: onPermissionsTap,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: onCompleteTap,
+              icon: Icon(
+                isSaving
+                    ? Icons.hourglass_top_rounded
+                    : Icons.check_circle_outline_rounded,
+              ),
+              label: Text(
+                isSaving ? 'Сохраняю...' : 'Завершить настройку',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _WorkerHeroCard extends StatelessWidget {
   final SenderSettingsState settings;
 
@@ -394,7 +973,9 @@ class _WorkerHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = isTransmissionEnabled ? AppColors.success : AppColors.warning;
+    final statusColor = isTransmissionEnabled
+        ? AppColors.success
+        : AppColors.warning;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -616,7 +1197,7 @@ class _QuickStatusGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
+        const Expanded(
           child: _StatusTile(
             icon: Icons.link_rounded,
             title: 'Связка',
