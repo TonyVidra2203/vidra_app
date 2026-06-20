@@ -342,7 +342,7 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
         pushNotificationsEnabled = updatedSettings.pushForwarding;
         quickSetupCompleted = false;
         isSaving = false;
-        message = 'Телефон передачи привязан.\nЗаполните данные телефона.';
+        message = 'Телефон передачи привязан.\nВключите нужные разрешения Android.';
       });
     } on DevicePairingException catch (error) {
       _setError(error.message);
@@ -481,17 +481,18 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
       body: SafeArea(
         child: Column(
           children: [
-            ModeSwitchHeader(
-              currentMode: AppMode.sender,
-              onModeChanged: _onModeChanged,
-              pushNotificationsEnabled:
-              isWorkerPhonePaired && pushNotificationsEnabled,
-              onPushNotificationsChanged: _onPushNotificationsChanged,
-              visibleModes: isWorkerPhonePaired
-                  ? const [AppMode.sender]
-                  : AppMode.values,
-              onResetPairing: isWorkerPhonePaired ? _resetPairing : null,
-            ),
+            if (!shouldShowQuickSetup)
+              ModeSwitchHeader(
+                currentMode: AppMode.sender,
+                onModeChanged: _onModeChanged,
+                pushNotificationsEnabled:
+                isWorkerPhonePaired && pushNotificationsEnabled,
+                onPushNotificationsChanged: _onPushNotificationsChanged,
+                visibleModes: isWorkerPhonePaired
+                    ? const [AppMode.sender]
+                    : AppMode.values,
+                onResetPairing: isWorkerPhonePaired ? _resetPairing : null,
+              ),
             Expanded(
               child: isLoading || currentSettings == null
                   ? const Center(
@@ -548,18 +549,20 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _FirstSetupInputCard(
-          deviceNameController: _deviceNameController,
-          phoneNumberController: _phoneNumberController,
-          commentController: _commentController,
+        _QuickSetupIntroCard(
+          allReady: allAndroidPermissionsReady,
         ),
         const SizedBox(height: 14),
         _AndroidPermissionsSetupCard(
           status: nativeStatus,
           allReady: allAndroidPermissionsReady,
-          onRequestSmsPermissions: _requestSmsPermissions,
+          onRequestSmsPermissions: nativeStatus.smsPermission
+              ? _openAppSettings
+              : _requestSmsPermissions,
           onRequestPostNotificationPermission:
-          _requestPostNotificationPermission,
+          nativeStatus.postNotificationPermission
+              ? _openAppSettings
+              : _requestPostNotificationPermission,
           onOpenNotificationListenerSettings:
           _openNotificationListenerSettings,
           onOpenBatteryOptimizationSettings:
@@ -606,114 +609,108 @@ class _SenderStatusScreenState extends State<SenderStatusScreen>
   }
 }
 
-class _FirstSetupInputCard extends StatefulWidget {
-  final TextEditingController deviceNameController;
-  final TextEditingController phoneNumberController;
-  final TextEditingController commentController;
+class _QuickSetupIntroCard extends StatelessWidget {
+  final bool allReady;
 
-  const _FirstSetupInputCard({
-    required this.deviceNameController,
-    required this.phoneNumberController,
-    required this.commentController,
+  const _QuickSetupIntroCard({
+    required this.allReady,
   });
-
-  @override
-  State<_FirstSetupInputCard> createState() => _FirstSetupInputCardState();
-}
-
-class _FirstSetupInputCardState extends State<_FirstSetupInputCard> {
-  @override
-  void initState() {
-    super.initState();
-    widget.deviceNameController.addListener(_refresh);
-    widget.phoneNumberController.addListener(_refresh);
-    widget.commentController.addListener(_refresh);
-  }
-
-  @override
-  void dispose() {
-    widget.deviceNameController.removeListener(_refresh);
-    widget.phoneNumberController.removeListener(_refresh);
-    widget.commentController.removeListener(_refresh);
-    super.dispose();
-  }
-
-  void _refresh() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Данные телефона',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: AppColors.primary.withOpacity(0.32),
+                    ),
+                  ),
+                  child: Icon(
+                    allReady ? Icons.verified_rounded : Icons.tune_rounded,
+                    color: AppColors.primary,
+                    size: 31,
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Быстрая настройка',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          height: 1.05,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        allReady
+                            ? 'Android-разрешения включены'
+                            : 'Включите разрешения, чтобы рабочий телефон стабильно передавал SMS и PUSH.',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Эти данные помогут отличать рабочий телефон в связке VidRA.',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              height: 1.35,
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.primary.withOpacity(0.22),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.shield_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      allReady
+                          ? 'Осталось нажать «Завершить настройку» — VidRA готова к работе.'
+                          : 'Сначала пройдите пункты ниже. Это стандартные Android-разрешения для работы приложения в фоне.',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        height: 1.4,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: widget.deviceNameController,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-            decoration: const InputDecoration(
-              labelText: 'Название телефона',
-              hintText: 'Например: Рабочий Samsung',
-              prefixIcon: Icon(Icons.phone_android_rounded),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: widget.phoneNumberController,
-            keyboardType: TextInputType.phone,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-            decoration: const InputDecoration(
-              labelText: 'Номер телефона',
-              hintText: '+7 999 000-00-00',
-              prefixIcon: Icon(Icons.call_rounded),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: widget.commentController,
-            keyboardType: TextInputType.multiline,
-            minLines: 2,
-            maxLines: 4,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
-            decoration: const InputDecoration(
-              labelText: 'Комментарий',
-              hintText: 'Например: телефон курьера, офиса или смены',
-              prefixIcon: Icon(Icons.comment_outlined),
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -869,7 +866,7 @@ class _PermissionSetupRow extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: isReady ? null : onTap,
+        onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           padding: const EdgeInsets.all(13),
@@ -939,21 +936,19 @@ class _PermissionSetupRow extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      isReady ? 'Готово' : actionText,
+                      isReady ? 'Изменить' : actionText,
                       style: TextStyle(
                         color: accentColor,
                         fontSize: 11,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    if (!isReady) ...[
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        color: accentColor,
-                        size: 14,
-                      ),
-                    ],
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color: accentColor,
+                      size: 14,
+                    ),
                   ],
                 ),
               ),
