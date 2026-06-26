@@ -24,7 +24,7 @@ public class BootReceiver extends BroadcastReceiver {
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             Log.d(TAG, "Boot/package event received: " + action);
             requestNotificationListenerRebind(context);
-            RelayPollingReceiver.schedule(context);
+            BackgroundKeepAliveService.start(context);
             MainActivity.notifyMessagesUpdated(context);
         }
     }
