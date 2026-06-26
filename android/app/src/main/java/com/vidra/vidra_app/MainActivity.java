@@ -29,8 +29,7 @@ public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "vidra/android_permissions";
     private static final String EVENTS_CHANNEL = "vidra/native_events";
 
-    private static final String ACTION_MESSAGES_UPDATED =
-            "com.vidra.vidra_app.MESSAGES_UPDATED";
+    private static final String ACTION_MESSAGES_UPDATED = "com.vidra.vidra_app.MESSAGES_UPDATED";
     private static final String EVENT_MESSAGES_UPDATED = "messagesUpdated";
 
     private static final String SETTINGS_PREFS = "vidra_sender_settings";
@@ -194,6 +193,7 @@ public class MainActivity extends FlutterActivity {
 
         registerNativeEventsReceiver();
         syncRelayPollingState();
+        syncBackgroundKeepAliveService();
     }
 
     @Override
@@ -295,8 +295,7 @@ public class MainActivity extends FlutterActivity {
     }
 
     private void requestPostNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && !hasPostNotificationPermission()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasPostNotificationPermission()) {
             ActivityCompat.requestPermissions(
                     this,
                     new String[]{Manifest.permission.POST_NOTIFICATIONS},
@@ -339,11 +338,8 @@ public class MainActivity extends FlutterActivity {
                 return true;
             }
 
-            PowerManager powerManager =
-                    (PowerManager) getSystemService(Context.POWER_SERVICE);
-
-            return powerManager != null
-                    && powerManager.isIgnoringBatteryOptimizations(getPackageName());
+            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            return powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName());
         } catch (Exception e) {
             return false;
         }
@@ -397,6 +393,7 @@ public class MainActivity extends FlutterActivity {
     ) {
         String cleanRelayUrl = cleanOrDefault(relayUrl, "");
         String cleanDeviceId = cleanOrDefault(deviceId, "");
+        boolean enabledBackgroundMode = backgroundMode != null ? backgroundMode : true;
 
         SharedPreferences prefs = getSharedPreferences(
                 SETTINGS_PREFS,
@@ -414,7 +411,7 @@ public class MainActivity extends FlutterActivity {
                 )
                 .putBoolean(
                         KEY_BACKGROUND_MODE,
-                        backgroundMode != null ? backgroundMode : true
+                        enabledBackgroundMode
                 )
                 .putBoolean(
                         KEY_ONLY_WITH_INTERNET,
@@ -433,6 +430,7 @@ public class MainActivity extends FlutterActivity {
                 .apply();
 
         syncRelayPollingState(cleanRelayUrl, cleanDeviceId);
+        syncBackgroundKeepAliveService(enabledBackgroundMode);
     }
 
     private void syncRelayPollingState() {
@@ -452,6 +450,24 @@ public class MainActivity extends FlutterActivity {
             RelayPollingReceiver.schedule(this);
         } else {
             RelayPollingReceiver.cancel(this);
+        }
+    }
+
+    private void syncBackgroundKeepAliveService() {
+        SharedPreferences prefs = getSharedPreferences(
+                SETTINGS_PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        boolean enabledBackgroundMode = prefs.getBoolean(KEY_BACKGROUND_MODE, true);
+        syncBackgroundKeepAliveService(enabledBackgroundMode);
+    }
+
+    private void syncBackgroundKeepAliveService(boolean enabledBackgroundMode) {
+        if (enabledBackgroundMode) {
+            BackgroundKeepAliveService.start(this);
+        } else {
+            BackgroundKeepAliveService.stop(this);
         }
     }
 
