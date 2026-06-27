@@ -128,9 +128,11 @@ class NativeMainPhoneService {
       return [];
     }
 
+    HttpClient? client;
+
     try {
       final uri = Uri.parse(relayUrl);
-      final client = HttpClient();
+      client = HttpClient();
 
       client.connectionTimeout = const Duration(seconds: 8);
 
@@ -145,8 +147,6 @@ class NativeMainPhoneService {
       );
 
       final body = await response.transform(utf8.decoder).join();
-
-      client.close(force: true);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return [];
@@ -166,6 +166,8 @@ class NativeMainPhoneService {
           .toList();
     } catch (_) {
       return [];
+    } finally {
+      client?.close(force: true);
     }
   }
 
@@ -232,11 +234,16 @@ class NativeMainPhoneService {
   }
 
   bool _isValidMessage(NativeForwardedMessage message) {
-    return message.type.isNotEmpty &&
-        (message.text.isNotEmpty ||
-            message.title.isNotEmpty ||
-            message.sender.isNotEmpty ||
-            message.app.isNotEmpty);
+    final type = message.type.trim().toLowerCase();
+
+    if (type != 'sms' && type != 'push') {
+      return false;
+    }
+
+    return message.text.isNotEmpty ||
+        message.title.isNotEmpty ||
+        message.sender.isNotEmpty ||
+        message.app.isNotEmpty;
   }
 
   List<NativeForwardedMessage> _removeDuplicates(
