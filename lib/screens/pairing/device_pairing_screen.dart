@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../navigation/app_routes.dart';
 import '../../services/device_pairing_service.dart';
 
 class DevicePairingScreenArguments {
@@ -121,6 +122,53 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       _setError(error.message);
     } catch (_) {
       _setError('Не удалось подключить телефон.');
+    }
+  }
+
+  Future<void> _scanMainPhoneQr() async {
+    final payload = await Navigator.of(context).pushNamed(
+      AppRoutes.qrPairingScanner,
+    );
+
+    if (!mounted || payload == null) {
+      return;
+    }
+
+    if (payload is! DevicePairingQrPayload) {
+      _setError('Это не QR-код главного телефона VidRA.');
+      return;
+    }
+
+    setState(() {
+      isSaving = true;
+      message = '';
+    });
+
+    try {
+      final newState = await service.connectWorkerPhoneFromQr(
+        deviceName: deviceNameController.text,
+        phoneNumber: phoneNumberController.text,
+        payload: payload,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        state = newState;
+        isSaving = false;
+        isManualCodeVisible = false;
+        pairCodeController.text = newState.pairCode;
+        message = 'Телефон подключён через QR-код.\n'
+            'SMS и PUSH будут передаваться на главный телефон.';
+      });
+
+      _updateRemoteUnpairWatcher(newState);
+    } on DevicePairingException catch (error) {
+      _setError(error.message);
+    } catch (_) {
+      _setError('Не удалось подключить телефон через QR-код.');
     }
   }
 
@@ -271,8 +319,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Покажите этот QR-код главному телефону.\n'
-                  'После сканирования главный телефон создаст код связки.',
+              'Покажите этот QR-код главному телефону или '
+                  'отсканируйте QR-код главного телефона.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary,
@@ -284,6 +332,14 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             const SizedBox(height: 18),
             _buildQrCode(),
             const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: isSaving ? null : _scanMainPhoneQr,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(
+                isSaving ? 'Подключаю...' : 'Сканировать QR главного телефона',
+              ),
+            ),
+            const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: isSaving
                   ? null
