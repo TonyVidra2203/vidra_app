@@ -1,5 +1,6 @@
 package com.vidra.vidra_app;
 
+import android.app.Notification;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -9,6 +10,10 @@ import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 public class NotificationForwarderService extends NotificationListenerService {
     private static final String TAG = "VidRA_PUSH";
@@ -23,6 +28,10 @@ public class NotificationForwarderService extends NotificationListenerService {
     private static final String PUSH_LIST_KEY = "push_messages";
 
     private static final int MAX_MESSAGES = 100;
+    private static final int MAX_RECENT_PUSHES = 80;
+    private static final long DUPLICATE_WINDOW_MS = 5 * 60 * 1000L;
+
+    private final Map<String, Long> recentPushFingerprints = new HashMap<>();
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -38,25 +47,33 @@ public class NotificationForwarderService extends NotificationListenerService {
         try {
             String packageName = sbn.getPackageName();
 
-            if (packageName == null || packageName.equals(getPackageName())) {
+            if (shouldIgnoreNotification(sbn, packageName)) {
                 return;
             }
 
             String appName = getAppName(packageName);
-            String title = extractNotificationTitle(sbn);
-            String text = extractNotificationText(sbn);
+            String title = clean(extractNotificationTitle(sbn));
+            String text = clean(extractNotificationText(sbn));
 
-            if (title.trim().isEmpty() && text.trim().isEmpty()) {
+            if (title.isEmpty() && text.isEmpty()) {
                 return;
             }
 
             long receivedAt = System.currentTimeMillis();
+            String fingerprint = buildNotificationFingerprint(sbn, packageName, title, text);
+
+            if (isDuplicatePush(fingerprint, receivedAt)) {
+                Log.d(TAG, "Duplicate PUSH skipped");
+                return;
+            }
 
             JSONObject payload = buildPayload(
+                    sbn,
                     packageName,
                     appName,
                     title,
                     text,
+                    fingerprint,
                     receivedAt
             );
 
@@ -68,6 +85,93 @@ public class NotificationForwarderService extends NotificationListenerService {
         } catch (Exception e) {
             Log.e(TAG, "Failed to process PUSH", e);
         }
+    }
+
+    private boolean shouldIgnoreNotification(StatusBarNotification sbn, String packageName) {
+        if (packageName == null || packageName.equals(getPackageName())) {
+            return true;
+        }
+
+        Notification notification = sbn.getNotification();
+
+        if (notification == null) {
+            return true;
+        }
+
+        if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
+            return true;
+        }
+
+        if ((notification.flags & Notification.FLAG_ONGOING_EVENT) != 0) {
+            return true;
+        }
+
+        if ((notification.flags & Notification.FLAG_LOCAL_ONLY) != 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isDuplicatePush(String fingerprint, long now) {
+        synchronized (recentPushFingerprints) {
+            removeOldFingerprints(now);
+
+            Long lastSeenAt = recentPushFingerprints.get(fingerprint);
+
+            if (lastSeenAt != null && now - lastSeenAt < DUPLICATE_WINDOW_MS) {
+                return true;
+            }
+
+            recentPushFingerprints.put(fingerprint, now);
+            trimRecentFingerprints();
+
+            return false;
+        }
+    }
+
+    private void removeOldFingerprints(long now) {
+        Iterator<Map.Entry<String, Long>> iterator = recentPushFingerprints.entrySet().iterator();
+
+        while (iterator.hasNext()) {
+            Map.Entry<String, Long> entry = iterator.next();
+
+            if (now - entry.getValue() > DUPLICATE_WINDOW_MS) {
+                iterator.remove();
+            }
+        }
+    }
+
+    private void trimRecentFingerprints() {
+        if (recentPushFingerprints.size() <= MAX_RECENT_PUSHES) {
+            return;
+        }
+
+        Iterator<String> iterator = recentPushFingerprints.keySet().iterator();
+
+        while (recentPushFingerprints.size() > MAX_RECENT_PUSHES && iterator.hasNext()) {
+            iterator.next();
+            iterator.remove();
+        }
+    }
+
+    private String buildNotificationFingerprint(
+            StatusBarNotification sbn,
+            String packageName,
+            String title,
+            String text
+    ) {
+        String tag = clean(sbn.getTag());
+        int id = sbn.getId();
+
+        return packageName + "|" + tag + "|" + id + "|" + title + "|" + text;
+    }
+
+    private String buildStablePayloadId(StatusBarNotification sbn, String fingerprint) {
+        long postTime = sbn.getPostTime();
+        String source = fingerprint + "|" + postTime;
+
+        return "push_" + Integer.toHexString(source.hashCode());
     }
 
     private boolean isPushForwardingEnabled() {
@@ -125,7 +229,7 @@ public class NotificationForwarderService extends NotificationListenerService {
         try {
             CharSequence title = sbn.getNotification()
                     .extras
-                    .getCharSequence("android.title");
+                    .getCharSequence(Notification.EXTRA_TITLE);
 
             return title == null ? "" : title.toString();
         } catch (Exception e) {
@@ -137,7 +241,7 @@ public class NotificationForwarderService extends NotificationListenerService {
         try {
             CharSequence bigText = sbn.getNotification()
                     .extras
-                    .getCharSequence("android.bigText");
+                    .getCharSequence(Notification.EXTRA_BIG_TEXT);
 
             if (bigText != null) {
                 return bigText.toString();
@@ -145,7 +249,7 @@ public class NotificationForwarderService extends NotificationListenerService {
 
             CharSequence text = sbn.getNotification()
                     .extras
-                    .getCharSequence("android.text");
+                    .getCharSequence(Notification.EXTRA_TEXT);
 
             return text == null ? "" : text.toString();
         } catch (Exception e) {
@@ -154,16 +258,18 @@ public class NotificationForwarderService extends NotificationListenerService {
     }
 
     private JSONObject buildPayload(
+            StatusBarNotification sbn,
             String packageName,
             String appName,
             String title,
             String text,
+            String fingerprint,
             long receivedAt
     ) {
         JSONObject payload = new JSONObject();
 
         try {
-            payload.put("id", "push_" + receivedAt);
+            payload.put("id", buildStablePayloadId(sbn, fingerprint));
             payload.put("type", "push");
             payload.put("sender", appName);
             payload.put("app", appName);
